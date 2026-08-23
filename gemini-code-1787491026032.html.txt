@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>音ゲー 譜面エディタ</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+  body { font-family: sans-serif; background: #121212; color: #fff; overflow-x: hidden; }
+  
+  /* 上部固定メニュー (画面スクロールの影響を受けない) */
+  #top-menu {
+    position: fixed; top: 0; left: 0; width: 100vw; height: 90px;
+    background: #1e1e1e; border-bottom: 2px solid #333; z-index: 100;
+    display: flex; flex-direction: column; justify-content: space-around; padding: 4px 8px;
+  }
+  .menu-row { display: flex; align-items: center; gap: 8px; }
+  
+  /* 頻繁に使用するボタン (大きくタップしやすい) */
+  .btn-large {
+    height: 44px; padding: 0 16px; font-size: 16px; font-weight: bold;
+    border: none; border-radius: 6px; cursor: pointer; color: white;
+  }
+  .btn-primary { background: #007acc; }
+  .btn-accent { background: #ff9800; }
+  .btn-danger { background: #e53935; }
+  .btn-small { height: 28px; font-size: 11px; padding: 0 6px; background: #444; color: #fff; border: none; border-radius: 4px; }
+  
+  .input-group { display: flex; align-items: center; gap: 4px; font-size: 12px; }
+  .input-group input[type="number"] { width: 50px; background: #2a2a2a; color: #fff; border: 1px solid #555; padding: 2px; }
+  .input-group input[type="range"] { width: 70px; }
+
+  /* 下部レーンエリア */
+  #editor-container { margin-top: 95px; padding: 10px; display: flex; flex-direction: column; gap: 12px; }
+  .lane-row { display: flex; align-items: center; gap: 6px; background: #181818; padding: 4px; border-radius: 6px; }
+  .play-here-btn {
+    width: 60px; height: 120px; flex-shrink: 0; background: #9c27b0; color: white;
+    border: none; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer;
+  }
+  .play-here-btn.playing { background: #e53935; }
+  canvas { background: #000; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<!-- 【譜面メニュー仕様】 上部固定 -->
+<div id="top-menu">
+  <div class="menu-row">
+    <button id="btn-play-all" class="btn-large btn-primary" onclick="togglePlayAll()">最初から再生</button>
+    <button class="btn-large btn-primary" onclick="undo()">やり直し</button>
+    <button class="btn-large btn-primary" onclick="redo()">進める</button>
+    <button id="btn-grid" class="btn-large btn-accent" onclick="toggleGridMode()">16分グリッド</button>
+    
+    <div style="flex-grow: 1;"></div>
+    <button class="btn-small">音声ファイル読込</button>
+    <button class="btn-small">譜面ファイル読込</button>
+  </div>
+  
+  <div class="menu-row">
+    <div class="input-group">
+      <label>BPM:</label>
+      <input type="number" id="bpm-input" value="120" onchange="updateBPM(this.value)">
+    </div>
+    <div class="input-group">
+      <label>オフセット(秒):</label>
+      <input type="number" id="offset-input" value="0" step="0.1" onchange="updateOffset(this.value)">
+    </div>
+    <div class="input-group">
+      <label>曲音量:</label>
+      <input type="range" id="bgm-vol" min="0" max="100" value="50" oninput="document.getElementById('bgm-val').innerText=this.value">
+      <span id="bgm-val">50</span>
+    </div>
+    <div class="input-group">
+      <label>ノーツ音量:</label>
+      <input type="range" id="se-vol" min="0" max="100" value="50" oninput="document.getElementById('se-val').innerText=this.value">
+      <span id="se-val">50</span>
+    </div>
+  </div>
+</div>
+
+<!-- 【レーン仕様】 16レーン（128小節） -->
+<div id="editor-container"></div>
+
+<script>
+// 色定義：上から順に 赤, 黄, 青, オレンジ, 灰色, 灰色
+const ROW_COLORS = [
+  '#f44336', // 赤
+  '#ffeb3b', // 黄
+  '#2196f3', // 青
+  '#ff9800', // オレンジ
+  '#9e9e9e', // 灰色1
+  '#616161'  // 灰色2
+];
+
+// 譜面データ構造 (1小節内の相対位置 relativeTime で音符のタイミングを保持)
+let notes = []; // { bar: 0~127, relativeTime: 0.0~1.0, row: 0~5 }
+let gridMode = 16; // 16 or 24
+let bpm = 120;
+let offsetSeconds = 0;
+let undoStack = [];
+let redoStack = [];
+
+// Web Audio API Setup
+const AudioContext = window.AudioContext || window.webkitAudioContext;
+const audioCtx = new AudioContext();
+
+// バスドラム低音再生 (遅延ゼロのオシレーター合成音)
+function playKickSound() {
+  const seVol = document.getElementById('se-vol').value / 100;
+  if (seVol <= 0) return;
+
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
+  
+  gain.gain.setValueAtTime(seVol, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
+  
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  
+  osc.start();
+  osc.stop(audioCtx.currentTime + 0.12);
+}
+
+// 履歴保存 (Undo/Redo)
+function saveHistory() {
+  undoStack.push(JSON.stringify(notes));
+  if (undoStack.length > 30) undoStack.shift();
+  redoStack = [];
+}
+
+function undo() {
+  if (undoStack.length === 0) return;
+  redoStack.push(JSON.stringify(notes));
+  notes = JSON.parse(undoStack.pop());
+  renderAllLanes();
+}
+
+function redo() {
+  if (redoStack.length === 0) return;
+  undoStack.push(JSON.stringify(notes));
+  notes = JSON.parse(redoStack.pop());
+  renderAllLanes();
+}
+
+function toggleGridMode() {
+  gridMode = (gridMode === 16) ? 24 : 16;
+  document.getElementById('btn-grid').innerText = gridMode + '分グリッド';
+  renderAllLanes();
+}
+
+// レーン初期化 (16本)
+const container = document.getElementById('editor-container');
+const laneCanvases = [];
+
+function initLanes() {
+  container.innerHTML = '';
+  for (let l = 0; l < 16; l++) {
+    const rowDiv = document.createElement('div');
+    rowDiv.className = 'lane-row';
+
+    const btn = document.createElement('button');
+    btn.className = 'play-here-btn';
+    btn.innerText = 'ここから\n再生';
+    btn.onclick = () => togglePlayLane(l, btn);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 1200;
+    canvas.height = 120;
+    
+    // タップ・クリックイベント
+    canvas.addEventListener('pointerdown', (e) => handleCanvasClick(e, l, canvas));
+
+    rowDiv.appendChild(btn);
+    rowDiv.appendChild(canvas);
+    container.appendChild(rowDiv);
+    laneCanvases.push(canvas);
+  }
+  renderAllLanes();
+}
+
+// Canvas描画ロジック
+function drawLane(laneIndex) {
+  const canvas = laneCanvases[laneIndex];
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width;
+  const h = canvas.height;
+  
+  ctx.clearRect(0, 0, w, h);
+  
+  const barWidth = w / 8; // 8小節
+  const rowHeight = h / 6; // 6行
+
+  // 方眼紙・グリッド描画
+  ctx.lineWidth = 1;
+  for (let b = 0; b < 8; b++) {
+    const startX = b * barWidth;
+    for (let i = 0; i < gridMode; i++) {
+      const x = startX + (i / gridMode) * barWidth;
+      ctx.strokeStyle = (i === 0) ? '#666' : '#2a2a2a';
+      ctx.beginPath();
+      ctx.moveTo(x, 0); ctx.lineTo(x, h);
+      ctx.stroke();
+    }
+  }
+
+  // 横線描画 (2列ごとに太線)
+  for (let r = 0; r <= 6; r++) {
+    const y = r * rowHeight;
+    ctx.lineWidth = (r % 2 === 0) ? 2 : 1;
+    ctx.strokeStyle = (r % 2 === 0) ? '#888' : '#333';
+    ctx.beginPath();
+    ctx.moveTo(0, y); ctx.lineTo(w, y);
+    ctx.stroke();
+  }
+
+  // ノーツ描画 (不透明度 60% = 0.6)
+  const startBar = laneIndex * 8;
+  const endBar = startBar + 8;
+  const laneNotes = notes.filter(n => n.bar >= startBar && n.bar < endBar);
+
+  ctx.globalAlpha = 0.6; // 仕様: 不透明度60%
+  for (let n of laneNotes) {
+    const localBar = n.bar - startBar;
+    const x = (localBar + n.relativeTime) * barWidth;
+    const y = n.row * rowHeight;
+
+    ctx.fillStyle = ROW_COLORS[n.row];
+    // 正方形ノーツ
+    ctx.fillRect(x + 1, y + 1, rowHeight - 2, rowHeight - 2);
+  }
+  ctx.globalAlpha = 1.0;
+}
+
+function renderAllLanes() {
+  for (let i = 0; i < 16; i++) drawLane(i);
+}
+
+// ノーツ打込・消去
+function handleCanvasClick(e, laneIndex, canvas) {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  
+  const rect = canvas.getBoundingClientRect();
+  const clickX = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const clickY = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+  const barWidth = canvas.width / 8;
+  const rowHeight = canvas.height / 6;
+
+  const barOffset = Math.floor(clickX / barWidth);
+  const targetBar = laneIndex * 8 + barOffset;
+  const relativeX = (clickX % barWidth) / barWidth;
+
+  // 現在のグリッドモードに合わせてスナップ
+  const snappedTime = Math.round(relativeX * gridMode) / gridMode;
+  const targetRow = Math.floor(clickY / rowHeight);
+
+  if (targetRow < 0 || targetRow >= 6) return;
+
+  saveHistory();
+
+  // 既存ノーツの検索（トグル動作）
+  const existingIndex = notes.findIndex(n => 
+    n.bar === targetBar && 
+    Math.abs(n.relativeTime - snappedTime) < 0.001 && 
+    n.row === targetRow
+  );
+
+  if (existingIndex >= 0) {
+    notes.splice(existingIndex, 1); // 消去
+  } else {
+    notes.push({ bar: targetBar, relativeTime: snappedTime, row: targetRow }); // 打ち込み
+    playKickSound(); // 音を鳴らす
+  }
+
+  drawLane(laneIndex);
+}
+
+function togglePlayLane(laneIndex, btn) {
+  const isPlaying = btn.classList.contains('playing');
+  document.querySelectorAll('.play-here-btn').forEach(b => {
+    b.classList.remove('playing');
+    b.innerText = 'ここから\n再生';
+  });
+
+  if (!isPlaying) {
+    btn.classList.add('playing');
+    btn.innerText = '停止';
+  }
+}
+
+function togglePlayAll() {
+  const btn = document.getElementById('btn-play-all');
+  if (btn.innerText === '最初から再生') {
+    btn.innerText = '停止';
+    btn.className = 'btn-large btn-danger';
+  } else {
+    btn.innerText = '最初から再生';
+    btn.className = 'btn-large btn-primary';
+  }
+}
+
+// 初期化実行
+initLanes();
+</script>
+</body>
+</html>
