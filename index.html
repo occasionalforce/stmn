@@ -70,40 +70,51 @@
   .context-menu {
     display: none; position: fixed; z-index: 200; background: #2a2a2a;
     border: 1px solid #555; border-radius: 6px; padding: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-    min-width: 140px;
+    min-width: 170px; max-width: 260px;
   }
-  .context-menu button {
+  .context-menu button, .context-menu input {
     display: block; width: 100%; margin: 4px 0; padding: 6px 10px;
-    background: #444; color: #fff; border: none; border-radius: 4px; cursor: pointer; text-align: left; font-size: 12px;
+    background: #444; color: #fff; border: 1px solid #555; border-radius: 4px; font-size: 12px;
   }
+  .context-menu button { cursor: pointer; text-align: left; }
   .context-menu button:disabled { opacity: 0.4; cursor: not-allowed; }
   .text-danger { color: #ff5252; font-weight: bold; }
 
-  /* 貼り付け仮置き確定UI */
-  #paste-popover, #expire-confirm-popover {
+  /* ID入力ボックス */
+  .id-box-container { display: flex; align-items: center; gap: 4px; background: #333; padding: 2px 6px; border-radius: 4px; margin: 4px 0; }
+  .id-box-container input { background: transparent; border: none; color: #fff; font-size: 12px; width: 100%; outline: none; }
+
+  /* 確定・キャンセル ポップオーバー */
+  .popover-ui {
     display: none; position: fixed; z-index: 300; background: #1e1e1e;
     border: 2px solid #007acc; border-radius: 8px; padding: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.7); display: flex; gap: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.7); gap: 8px;
   }
-  #paste-popover button, #expire-confirm-popover button {
-    padding: 6px 12px; font-size: 12px; font-weight: bold; border: none; border-radius: 4px; cursor: pointer;
-  }
+  .popover-ui button { padding: 6px 12px; font-size: 12px; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; }
   .btn-confirm { background: #4caf50; color: white; }
   .btn-cancel { background: #f44336; color: white; }
 
-  /* 16:9 位置・大きさ編集スクリーン Modal */
-  #position-modal {
+  /* モーダルスクリーン汎用 (16:9) */
+  .modal-overlay {
     display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
     background: rgba(0,0,0,0.9); z-index: 500; flex-direction: column; align-items: center; justify-content: center;
   }
-  #screen-container {
+  .screen-container {
     position: relative; width: 80vw; height: 45vw; max-width: 960px; max-height: 540px;
     background: #111; border: 2px solid #009688; box-shadow: 0 0 20px rgba(0,150,136,0.5);
     overflow: hidden; touch-action: none;
   }
-  #screen-canvas { width: 100%; height: 100%; }
-  .modal-controls { margin-top: 15px; display: flex; gap: 20px; }
-  .modal-controls button { padding: 10px 30px; font-size: 16px; font-weight: bold; border-radius: 6px; border: none; cursor: pointer; }
+  .modal-controls { margin-top: 10px; display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
+  .modal-controls button { padding: 8px 20px; font-size: 14px; font-weight: bold; border-radius: 6px; border: none; cursor: pointer; }
+  .scale-label { font-size: 14px; font-weight: bold; color: #ffeb3b; }
+
+  /* モーダルダイアログ */
+  .dialog-box {
+    background: #2a2a2a; border: 2px solid #555; border-radius: 8px; padding: 15px;
+    display: flex; flex-direction: column; gap: 10px; min-width: 220px; color: white;
+  }
+  .dialog-box input { background: #111; border: 1px solid #666; color: #fff; padding: 6px; border-radius: 4px; text-align: center; }
+  .dialog-btn-row { display: flex; gap: 8px; justify-content: flex-end; }
 </style>
 </head>
 <body oncontextmenu="return false;">
@@ -152,8 +163,19 @@
 <!-- ノーツ設定メニュー -->
 <div id="note-context-menu" class="context-menu">
   <div style="font-size:11px; color:#aaa; margin-bottom:4px;" id="note-menu-title">ノーツメニュー</div>
-  <button id="btn-menu-copy" onclick="copySelected()">コピー</button>
-  <button id="btn-menu-delete" onclick="deleteSelected()">削除</button>
+  
+  <div id="note-id-container" class="id-box-container">
+    <input type="text" id="txt-note-line-id" placeholder="ID紐付け未設定" onblur="onNoteIdInputBlur()" onkeydown="if(event.key==='Enter')this.blur()">
+    <span id="lbl-id-check" style="display:none;">✅</span>
+  </div>
+
+  <button id="btn-note-copy" onclick="copySelected()">コピー</button>
+  <button id="btn-note-delete" onclick="deleteSelectedNotes()">削除</button>
+  <button id="btn-note-gen" onclick="startGenTimingMode()">発生タイミング設定 <span id="icon-note-gen"></span></button>
+  <button id="btn-note-path" onclick="openPathModal()">軌道設定 <span id="icon-note-path"></span></button>
+  <button id="btn-note-size" onclick="startSizeConfigMode()">大きさ変化設定 <span id="icon-note-size"></span></button>
+  <button id="btn-note-rot" onclick="openRotationModal()">回転設定 <span id="icon-note-rot"></span></button>
+  <button id="btn-note-add-switch" onclick="handleAddOrSwitchNote()">ノーツ追加</button>
   <button onclick="closeContextMenu()">閉じる</button>
 </div>
 
@@ -169,25 +191,90 @@
 </div>
 
 <!-- 貼り付け仮置き確定UI -->
-<div id="paste-popover">
+<div id="paste-popover" class="popover-ui">
   <button class="btn-confirm" onclick="confirmPaste()">貼り付ける</button>
   <button class="btn-cancel" onclick="cancelPaste()">やめる</button>
 </div>
 
-<!-- 消失タイミング選択確定UI -->
-<div id="expire-confirm-popover">
-  <button class="btn-confirm" onclick="confirmExpireTiming()">決定</button>
-  <button class="btn-cancel" onclick="cancelExpireTiming()">キャンセル</button>
+<!-- 消失/発生タイミング選択確定UI -->
+<div id="grid-select-popover" class="popover-ui">
+  <button class="btn-confirm" onclick="confirmGridSelect()">決定</button>
+  <button class="btn-cancel" onclick="cancelGridSelect()">キャンセル</button>
 </div>
 
-<!-- 位置・大きさ編集スクリーン (16:9) -->
-<div id="position-modal">
-  <div id="screen-container">
+<!-- 大きさ変化設定確定UI -->
+<div id="size-config-popover" class="popover-ui">
+  <button class="btn-confirm" onclick="confirmSizeConfig()">決定</button>
+  <button class="btn-cancel" onclick="cancelSizeConfig()">キャンセル</button>
+</div>
+
+<!-- 16:9 判定ライン位置・大きさ編集スクリーン -->
+<div id="position-modal" class="modal-overlay">
+  <div class="screen-container">
     <canvas id="screen-canvas" width="960" height="540"></canvas>
   </div>
   <div class="modal-controls">
+    <span id="lbl-pos-scale" class="scale-label">倍率: 100%</span>
     <button class="btn-confirm" onclick="savePositionModal()">決定</button>
     <button class="btn-cancel" onclick="closePositionModal()">キャンセル</button>
+  </div>
+</div>
+
+<!-- 16:9 ノーツ軌道編集スクリーン -->
+<div id="path-modal" class="modal-overlay">
+  <div class="screen-container" id="path-screen-container">
+    <canvas id="path-canvas" width="960" height="540"></canvas>
+  </div>
+  <div class="modal-controls">
+    <button class="btn-small" onclick="togglePathZoom()">🔍 ズーム</button>
+    <span id="lbl-path-zoom" class="scale-label">ズーム: 100%</span>
+    <span id="lbl-path-length" style="font-size:12px; color:#aaa;">長さ: 0px</span>
+    <button id="btn-beat-pointers" class="btn-accent" style="display:none;" onclick="addBeatPointers()">拍ごとにポインタ</button>
+    <button class="btn-confirm" onclick="savePathModal()">決定</button>
+    <button class="btn-cancel" onclick="closePathModal()">キャンセル</button>
+  </div>
+</div>
+
+<!-- 回転設定モーダル -->
+<div id="rotation-modal" class="modal-overlay">
+  <div class="dialog-box">
+    <div style="font-weight:bold; font-size:14px; text-align:center;">回転設定</div>
+    <div style="display:flex; justify-content:space-around; margin:8px 0;">
+      <button class="btn-small" id="btn-rot-left" onclick="setRotDir('left')">↺ 左回転</button>
+      <button class="btn-small" id="btn-rot-none" onclick="setRotDir('none')">✖️ 回転なし</button>
+      <button class="btn-small" id="btn-rot-right" onclick="setRotDir('right')">↻ 右回転</button>
+    </div>
+    <div class="input-group" style="justify-content:center;">
+      <label>1拍あたりの回転角(度):</label>
+      <input type="number" id="txt-rot-deg" value="0">
+    </div>
+    <div class="dialog-btn-row">
+      <button class="btn-confirm" onclick="saveRotationModal()">決定</button>
+      <button class="btn-cancel" onclick="closeRotationModal()">キャンセル</button>
+    </div>
+  </div>
+</div>
+
+<!-- サイズ倍率入力モーダル -->
+<div id="size-val-modal" class="modal-overlay">
+  <div class="dialog-box">
+    <div style="font-size:13px;">サイズ倍率設定 (%)</div>
+    <input type="number" id="txt-size-val" value="100">
+    <div class="dialog-btn-row">
+      <button class="btn-confirm" onclick="saveSizeValModal()">決定</button>
+      <button class="btn-cancel" onclick="closeSizeValModal()">キャンセル</button>
+    </div>
+  </div>
+</div>
+
+<!-- 形状変化(イージング)モーダル -->
+<div id="easing-modal" class="modal-overlay">
+  <div class="dialog-box" style="align-items:center;">
+    <div style="font-size:13px; margin-bottom:6px;">サイズ変化率の指定</div>
+    <div style="display:flex; gap:15px;">
+      <button class="btn-large btn-primary" onclick="setEasingType('linear')">直線 (一次関数)</button>
+      <button class="btn-large btn-accent" onclick="setEasingType('ease')">曲線 (二次関数)</button>
+    </div>
   </div>
 </div>
 
@@ -199,9 +286,10 @@ window.addEventListener('DOMContentLoaded', () => {
   const ROW_COLORS = ['#f44336', '#2196f3', '#ffeb3b', '#ff9800', '#9e9e9e', '#616161'];
   const SHAPES = ['circle', 'square', 'triangle', 'star', 'irregular', 'irregular'];
 
-  let notes = [];
-  let lines = []; // 判定ライン配列 { id, bar, relativeTime, row, shape, position: {x,y,scale,rotation}, expire: {bar, relativeTime} | null }
+  let notes = []; // { id, bar, relativeTime, row, lineId, genTiming, path, sizePointers, sizeEasings, rotation, rotDir }
+  let lines = []; // { id, bar, relativeTime, row, shape, position, expire }
   let lineIdCounter = 1;
+  let noteIdCounter = 1;
 
   let editMode = 'note'; // 'note' or 'line'
   let gridMode = 16;
@@ -209,41 +297,35 @@ window.addEventListener('DOMContentLoaded', () => {
   let redoStack = [];
   let bpm = 120;
 
-  // 選択・コピー・仮置きデータ
+  // 選択・編集オブジェクト
   let selectedNotes = [];
   let selectedLines = [];
-  let targetLine = null; // 現在編集対象の判定ライン
+  let targetNote = null;
+  let targetLine = null;
   let clipboard = [];
   let previewNotes = [];
   let isPasteMode = false;
 
-  // 消失タイミング選択モード
-  let isExpireSelectMode = false;
-  let pendingExpireTiming = null;
+  // グリッド選択モード (判定ライン消失 / ノーツ発生タイミング)
+  let selectGridModeType = null; // 'line_expire' or 'note_gen' or 'size_config'
+  let pendingSelectTiming = null;
 
-  let dragStart = null;
-  let dragCurrent = null;
   let activeLaneIndex = -1;
-
-  let tapTimer = null;
-  let isLongTap = false;
+  let dragStart = null; let dragCurrent = null;
+  let tapTimer = null; let isLongTap = false;
   let targetExistingItem = null;
 
   let audioCtx = null;
   let isPlaying = false;
-  let playStartBar = 0;
-  let playStartTime = 0;
-  let animFrameId = null;
-  let playingLaneIndex = -1;
+  let playStartBar = 0; let playStartTime = 0;
+  let animFrameId = null; let playingLaneIndex = -1;
 
-  // 点滅アニメーション用
   let flashState = false;
-  setInterval(() => { flashState = !flashState; if (isExpireSelectMode) renderAllLanes(); }, 300);
+  setInterval(() => { flashState = !flashState; if (selectGridModeType) renderAllLanes(); }, 300);
 
   function showToast(msg) {
     const toast = document.getElementById('toast');
-    toast.innerText = msg;
-    toast.classList.add('show');
+    toast.innerText = msg; toast.classList.add('show');
     setTimeout(() => { toast.classList.remove('show'); }, 2000);
   }
 
@@ -267,39 +349,36 @@ window.addEventListener('DOMContentLoaded', () => {
     osc.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
     gain.gain.setValueAtTime(seVol, audioCtx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.12);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + 0.12);
   }
 
   window.saveHistory = function() {
-    undoStack.push(JSON.stringify({ notes, lines, lineIdCounter }));
+    undoStack.push(JSON.stringify({ notes, lines, lineIdCounter, noteIdCounter }));
     if (undoStack.length > 30) undoStack.shift();
     redoStack = [];
   };
 
   window.undo = function() {
     if (undoStack.length === 0) return;
-    redoStack.push(JSON.stringify({ notes, lines, lineIdCounter }));
+    redoStack.push(JSON.stringify({ notes, lines, lineIdCounter, noteIdCounter }));
     const data = JSON.parse(undoStack.pop());
-    notes = data.notes; lines = data.lines; lineIdCounter = data.lineIdCounter;
+    notes = data.notes; lines = data.lines; lineIdCounter = data.lineIdCounter; noteIdCounter = data.noteIdCounter;
     renderAllLanes();
   };
 
   window.redo = function() {
     if (redoStack.length === 0) return;
-    undoStack.push(JSON.stringify({ notes, lines, lineIdCounter }));
+    undoStack.push(JSON.stringify({ notes, lines, lineIdCounter, noteIdCounter }));
     const data = JSON.parse(redoStack.pop());
-    notes = data.notes; lines = data.lines; lineIdCounter = data.lineIdCounter;
+    notes = data.notes; lines = data.lines; lineIdCounter = data.lineIdCounter; noteIdCounter = data.noteIdCounter;
     renderAllLanes();
   };
 
   window.toggleGridMode = function() {
     gridMode = (gridMode === 16) ? 24 : 16;
     document.getElementById('btn-grid').innerText = gridMode + '分グリッド';
-    updateCanvasSizes();
-    renderAllLanes();
+    updateCanvasSizes(); renderAllLanes();
   };
 
   window.toggleEditMode = function() {
@@ -314,9 +393,7 @@ window.addEventListener('DOMContentLoaded', () => {
       btn.className = 'btn-large btn-mode';
       showToast('ノーツ設定モードに切り替えました');
     }
-    cancelExpireTiming();
-    cancelPaste();
-    closeContextMenu();
+    cancelGridSelect(); cancelPaste(); closeContextMenu();
     document.querySelectorAll('.lane-row').forEach(el => {
       if (editMode === 'line') el.classList.add('line-mode-bg');
       else el.classList.remove('line-mode-bg');
@@ -328,12 +405,9 @@ window.addEventListener('DOMContentLoaded', () => {
     bpm = parseFloat(document.getElementById('bpm-input').value) || 120;
   };
 
-  // --- ファイル入出力（保存・読込） ---
+  // --- 保存 / 読込 ---
   window.saveChartData = function() {
-    const chartData = {
-      bpm, offset: parseFloat(document.getElementById('offset-input').value) || 0,
-      notes, lines, lineIdCounter
-    };
+    const chartData = { bpm, offset: parseFloat(document.getElementById('offset-input').value) || 0, notes, lines, lineIdCounter, noteIdCounter };
     const blob = new Blob([JSON.stringify(chartData, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -350,26 +424,22 @@ window.addEventListener('DOMContentLoaded', () => {
       try {
         const data = JSON.parse(evt.target.result);
         window.saveHistory();
-        notes = data.notes || [];
-        lines = data.lines || [];
+        notes = data.notes || []; lines = data.lines || [];
         lineIdCounter = data.lineIdCounter || (lines.length + 1);
+        noteIdCounter = data.noteIdCounter || (notes.length + 1);
         if (data.bpm) { bpm = data.bpm; document.getElementById('bpm-input').value = bpm; }
         renderAllLanes();
         showToast('譜面を読み込みました');
-      } catch (err) {
-        alert('譜面ファイルの読み込みに失敗しました');
-      }
+      } catch (err) { alert('譜面ファイルの読み込みに失敗しました'); }
     };
     reader.readAsText(file);
   };
 
   const container = document.getElementById('editor-container');
-  const laneCanvases = [];
-  const playBtns = [];
+  const laneCanvases = []; const playBtns = [];
 
   function updateCanvasSizes() {
-    const canvasWidth = 1280;
-    const canvasHeight = ROW_HEIGHT * 7;
+    const canvasWidth = 1280; const canvasHeight = ROW_HEIGHT * 7;
     laneCanvases.forEach(canvas => {
       canvas.width = canvasWidth; canvas.height = canvasHeight;
       canvas.style.width = canvasWidth + 'px'; canvas.style.height = canvasHeight + 'px';
@@ -379,20 +449,13 @@ window.addEventListener('DOMContentLoaded', () => {
   function initLanes() {
     container.innerHTML = '';
     for (let l = 0; l < TOTAL_LANES; l++) {
-      const rowDiv = document.createElement('div');
-      rowDiv.className = 'lane-row';
-
-      const headerDiv = document.createElement('div');
-      headerDiv.className = 'lane-header';
-
-      const barLabel = document.createElement('div');
-      barLabel.className = 'bar-num-label';
+      const rowDiv = document.createElement('div'); rowDiv.className = 'lane-row';
+      const headerDiv = document.createElement('div'); headerDiv.className = 'lane-header';
+      const barLabel = document.createElement('div'); barLabel.className = 'bar-num-label';
       const startBarNum = l * BARS_PER_LANE + 1;
       barLabel.innerText = `${startBarNum}〜${startBarNum + BARS_PER_LANE - 1}\n小節`;
 
-      const btn = document.createElement('button');
-      btn.className = 'play-here-btn';
-      btn.innerText = 'ここから\n再生';
+      const btn = document.createElement('button'); btn.className = 'play-here-btn'; btn.innerText = 'ここから\n再生';
       btn.onclick = () => togglePlayLane(l);
 
       headerDiv.appendChild(barLabel); headerDiv.appendChild(btn);
@@ -406,8 +469,7 @@ window.addEventListener('DOMContentLoaded', () => {
       container.appendChild(rowDiv);
       laneCanvases.push(canvas); playBtns.push(btn);
     }
-    updateCanvasSizes();
-    renderAllLanes();
+    updateCanvasSizes(); renderAllLanes();
   }
 
   function drawLane(laneIndex, playheadBar = -1) {
@@ -420,11 +482,10 @@ window.addEventListener('DOMContentLoaded', () => {
     const barWidth = w / BARS_PER_LANE;
     const startBar = laneIndex * BARS_PER_LANE;
 
-    // ヘッダー描画
+    // ヘッダー
     ctx.fillStyle = (editMode === 'line') ? '#0d3834' : '#222';
     ctx.fillRect(0, 0, w, ROW_HEIGHT);
-    ctx.fillStyle = '#4fc3f7'; ctx.font = 'bold 11px sans-serif';
-    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#4fc3f7'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
 
     for (let b = 0; b < BARS_PER_LANE; b++) {
       const x = b * barWidth;
@@ -433,34 +494,30 @@ window.addEventListener('DOMContentLoaded', () => {
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
     }
 
-    // グリッド描画
+    // グリッド線
     const halfBeatInterval = gridMode / 8;
     for (let b = 0; b < BARS_PER_LANE; b++) {
       const startX = b * barWidth;
       for (let i = 0; i < gridMode; i++) {
         const x = startX + (i / gridMode) * barWidth;
         if (i === 0) continue;
-        if (i % halfBeatInterval === 0) {
-          ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
-        } else {
-          ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 1;
-        }
+        ctx.strokeStyle = (i % halfBeatInterval === 0) ? '#ffffff' : '#2a2a2a';
+        ctx.lineWidth = (i % halfBeatInterval === 0) ? 2 : 1;
         ctx.beginPath(); ctx.moveTo(x, ROW_HEIGHT); ctx.lineTo(x, h); ctx.stroke();
       }
     }
 
-    // 横線
+    // 横行
     for (let r = 0; r <= 6; r++) {
       const y = ROW_HEIGHT + r * ROW_HEIGHT;
-      ctx.lineWidth = (r % 2 === 0) ? 2 : 1;
-      ctx.strokeStyle = (r % 2 === 0) ? '#666' : '#333';
+      ctx.lineWidth = (r % 2 === 0) ? 2 : 1; ctx.strokeStyle = (r % 2 === 0) ? '#666' : '#333';
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
     }
 
     const endBar = startBar + BARS_PER_LANE;
     const cellWidth = barWidth / gridMode;
 
-    // --- ノーツ描画 ---
+    // ノーツ描画
     const laneNotes = notes.filter(n => n.bar >= startBar && n.bar < endBar);
     for (let n of laneNotes) {
       const x = ((n.bar - startBar) + n.relativeTime) * barWidth;
@@ -468,13 +525,14 @@ window.addEventListener('DOMContentLoaded', () => {
       ctx.fillStyle = ROW_COLORS[n.row];
       ctx.globalAlpha = (editMode === 'line') ? 0.3 : 1.0;
       ctx.fillRect(x + 1, y + 1, cellWidth - 2, ROW_HEIGHT - 2);
-      if (editMode === 'note' && selectedNotes.includes(n)) {
+
+      if (editMode === 'note' && (selectedNotes.includes(n) || targetNote === n)) {
         ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 2; ctx.strokeRect(x, y, cellWidth, ROW_HEIGHT);
       }
     }
     ctx.globalAlpha = 1.0;
 
-    // --- 判定ライン描画 ---
+    // 判定ライン描画
     const laneLines = lines.filter(l => l.bar >= startBar && l.bar < endBar);
     for (let l of laneLines) {
       const x = ((l.bar - startBar) + l.relativeTime) * barWidth;
@@ -484,14 +542,15 @@ window.addEventListener('DOMContentLoaded', () => {
       ctx.globalAlpha = (editMode === 'note') ? 0.4 : 1.0;
       ctx.fillRect(x + 1, y + 1, cellWidth - 2, ROW_HEIGHT - 2);
 
-      // 図形アイコンの簡易表示
-      ctx.fillStyle = '#fff'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
-      let icon = '⚪︎';
-      if (l.shape === 'square') icon = '□';
-      else if (l.shape === 'triangle') icon = '△';
-      else if (l.shape === 'star') icon = '⭐︎';
-      else if (l.shape === 'irregular') icon = '◇';
-      ctx.fillText(icon, x + cellWidth / 2, y + ROW_HEIGHT / 2);
+      // アイコン（正中央配置、5,6行目は非表示）
+      if (l.row < 4) {
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        let icon = '⚪︎';
+        if (l.shape === 'square') icon = '□';
+        else if (l.shape === 'triangle') icon = '△';
+        else if (l.shape === 'star') icon = '⭐︎';
+        ctx.fillText(icon, x + cellWidth / 2, y + ROW_HEIGHT / 2);
+      }
 
       if (editMode === 'line' && (selectedLines.includes(l) || targetLine === l)) {
         ctx.strokeStyle = '#ffeb3b'; ctx.lineWidth = 2; ctx.strokeRect(x, y, cellWidth, ROW_HEIGHT);
@@ -499,37 +558,28 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     ctx.globalAlpha = 1.0;
 
-    // --- 消失タイミング設定モード時の黄点滅＆青点線 ---
-    if (isExpireSelectMode && targetLine) {
-      // 発生位置
-      const genX = ((targetLine.bar - startBar) + targetLine.relativeTime) * barWidth;
-      const genY = ROW_HEIGHT + targetLine.row * ROW_HEIGHT + ROW_HEIGHT / 2;
+    // --- 点滅＆破線補助線 (消失 / 発生 / 大きさ設定) ---
+    if (selectGridModeType) {
+      let refObj = (selectGridModeType === 'line_expire') ? targetLine : targetNote;
+      if (refObj) {
+        const refX = ((refObj.bar - startBar) + refObj.relativeTime) * barWidth;
+        const refY = ROW_HEIGHT + refObj.row * ROW_HEIGHT + ROW_HEIGHT / 2;
 
-      if (pendingExpireTiming) {
-        const expX = ((pendingExpireTiming.bar - startBar) + pendingExpireTiming.relativeTime) * barWidth;
-        
-        // 該当グリッド列の黄点滅
-        if (pendingExpireTiming.bar >= startBar && pendingExpireTiming.bar < endBar) {
+        if (pendingSelectTiming && pendingSelectTiming.bar >= startBar && pendingSelectTiming.bar < endBar) {
+          const selX = ((pendingSelectTiming.bar - startBar) + pendingSelectTiming.relativeTime) * barWidth;
           if (flashState) {
             ctx.fillStyle = 'rgba(255, 235, 59, 0.4)';
-            ctx.fillRect(expX, ROW_HEIGHT, cellWidth, h - ROW_HEIGHT);
+            ctx.fillRect(selX, ROW_HEIGHT, cellWidth, h - ROW_HEIGHT);
           }
-        }
-
-        // 青い点線（補助線）
-        if (targetLine.bar >= startBar || pendingExpireTiming.bar >= startBar) {
-          ctx.strokeStyle = '#2196f3'; ctx.lineWidth = 2;
-          ctx.setLineDash([4, 4]);
-          ctx.beginPath();
-          ctx.moveTo(genX, genY);
-          ctx.lineTo(expX + cellWidth / 2, genY);
-          ctx.stroke();
-          ctx.setLineDash([]); // リセット
+          ctx.strokeStyle = (selectGridModeType === 'line_expire') ? '#2196f3' : '#ffffff';
+          ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
+          ctx.beginPath(); ctx.moveTo(refX + cellWidth / 2, refY); ctx.lineTo(selX + cellWidth / 2, refY); ctx.stroke();
+          ctx.setLineDash([]);
         }
       }
     }
 
-    // --- 仮置きノーツ（コピー後の貼り付けプレビュー） ---
+    // 貼り付けプレビュー
     if (isPasteMode && previewNotes.length > 0) {
       const previewLaneNotes = previewNotes.filter(n => n.bar >= startBar && n.bar < endBar);
       ctx.globalAlpha = 0.5;
@@ -543,18 +593,15 @@ window.addEventListener('DOMContentLoaded', () => {
       ctx.globalAlpha = 1.0;
     }
 
-    // --- ドラッグ選択領域（青枠） ---
+    // 範囲選択枠
     if (activeLaneIndex === laneIndex && dragStart && dragCurrent) {
-      const rx = Math.min(dragStart.x, dragCurrent.x);
-      const ry = Math.min(dragStart.y, dragCurrent.y);
-      const rw = Math.abs(dragStart.x - dragCurrent.x);
-      const rh = Math.abs(dragStart.y - dragCurrent.y);
-      ctx.fillStyle = 'rgba(0, 122, 204, 0.3)';
-      ctx.fillRect(rx, ry, rw, rh);
+      const rx = Math.min(dragStart.x, dragCurrent.x); const ry = Math.min(dragStart.y, dragCurrent.y);
+      const rw = Math.abs(dragStart.x - dragCurrent.x); const rh = Math.abs(dragStart.y - dragCurrent.y);
+      ctx.fillStyle = 'rgba(0, 122, 204, 0.3)'; ctx.fillRect(rx, ry, rw, rh);
       ctx.strokeStyle = '#007acc'; ctx.lineWidth = 1; ctx.strokeRect(rx, ry, rw, rh);
     }
 
-    // 再生カーソル
+    // 再生線
     if (playheadBar >= startBar && playheadBar < endBar) {
       const playX = (playheadBar - startBar) * barWidth;
       ctx.strokeStyle = '#f44336'; ctx.lineWidth = 3;
@@ -568,48 +615,40 @@ window.addEventListener('DOMContentLoaded', () => {
 
   function getCanvasCoords(e, canvas) {
     const rect = canvas.getBoundingClientRect();
-    return {
-      x: (e.clientX - rect.left) * (canvas.width / rect.width),
-      y: (e.clientY - rect.top) * (canvas.height / rect.height)
-    };
+    return { x: (e.clientX - rect.left) * (canvas.width / rect.width), y: (e.clientY - rect.top) * (canvas.height / rect.height) };
   }
 
   function onPointerDown(e, laneIndex, canvas) {
-    initAudio();
-    closeContextMenu();
-
+    initAudio(); closeContextMenu();
     const { x, y } = getCanvasCoords(e, canvas);
     if (y < ROW_HEIGHT) return;
 
-    activeLaneIndex = laneIndex;
-    dragStart = { x, y }; dragCurrent = { x, y };
-
+    activeLaneIndex = laneIndex; dragStart = { x, y }; dragCurrent = { x, y };
     const barWidth = canvas.width / BARS_PER_LANE;
     const targetRow = Math.floor((y - ROW_HEIGHT) / ROW_HEIGHT);
     const targetBar = laneIndex * BARS_PER_LANE + Math.floor(x / barWidth);
     const relativeX = (x % barWidth) / barWidth;
     const snappedTime = Math.floor(relativeX * gridMode) / gridMode;
 
-    if (isExpireSelectMode) return; // 消失選択モード時は別処理
+    if (selectGridModeType) return;
 
     if (editMode === 'note') {
-      targetExistingItem = notes.find(n => n.bar === targetBar && Math.abs(n.relativeTime - snappedTime) < 0.0001 && n.row === targetRow);
+      const foundNotes = notes.filter(n => n.bar === targetBar && Math.abs(n.relativeTime - snappedTime) < 0.0001 && n.row === targetRow);
+      targetExistingItem = foundNotes[0] || null;
     } else {
       targetExistingItem = lines.find(l => l.bar === targetBar && Math.abs(l.relativeTime - snappedTime) < 0.0001 && l.row === targetRow);
     }
 
-    isLongTap = false;
-    clearTimeout(tapTimer);
+    isLongTap = false; clearTimeout(tapTimer);
 
     if (targetExistingItem && !isPasteMode) {
       tapTimer = setTimeout(() => {
         isLongTap = true;
         if (editMode === 'note') {
-          selectedNotes = [targetExistingItem];
+          targetNote = targetExistingItem; selectedNotes = [targetNote];
           openNoteContextMenu(e.clientX, e.clientY);
         } else {
-          targetLine = targetExistingItem;
-          selectedLines = [targetExistingItem];
+          targetLine = targetExistingItem; selectedLines = [targetLine];
           openLineContextMenu(e.clientX, e.clientY);
         }
         renderAllLanes();
@@ -619,13 +658,12 @@ window.addEventListener('DOMContentLoaded', () => {
 
   function onPointerMove(e, laneIndex, canvas) {
     if (!dragStart || activeLaneIndex !== laneIndex) return;
-
     const { x, y } = getCanvasCoords(e, canvas);
     dragCurrent = { x, y };
 
     if (Math.hypot(x - dragStart.x, y - dragStart.y) > 5) clearTimeout(tapTimer);
 
-    if (!isPasteMode && !isExpireSelectMode && Math.hypot(x - dragStart.x, y - dragStart.y) >= 5) {
+    if (!isPasteMode && !selectGridModeType && Math.hypot(x - dragStart.x, y - dragStart.y) >= 5) {
       const barWidth = canvas.width / BARS_PER_LANE;
       const startBar = laneIndex * BARS_PER_LANE;
       const rx = Math.min(dragStart.x, dragCurrent.x); const ry = Math.min(dragStart.y, dragCurrent.y);
@@ -657,33 +695,36 @@ window.addEventListener('DOMContentLoaded', () => {
     const { x, y } = getCanvasCoords(e, canvas);
     const dist = Math.hypot(x - dragStart.x, y - dragStart.y);
 
-    if (isExpireSelectMode) {
-      // 消失タイミングの選択
-      handleExpireSelectTap(laneIndex, x, e.clientX, e.clientY);
+    if (selectGridModeType) {
+      handleGridSelectTap(laneIndex, x, e.clientX, e.clientY);
     } else if (isPasteMode) {
       updatePastePreview(laneIndex, x, y, e.clientX, e.clientY);
     } else if (dist < 5) {
       if (!isLongTap) {
         if (targetExistingItem) {
-          // 0.5秒未満タップ ➔ 削除
-          window.saveHistory();
-          if (editMode === 'note') {
-            notes = notes.filter(n => n !== targetExistingItem);
-            selectedNotes = [];
+          // 削除処理
+          if (editMode === 'line') {
+            if (targetExistingItem.position) {
+              if (confirm('配置設定済の判定ラインを削除してもよろしいですか？')) {
+                window.saveHistory();
+                lines = lines.filter(l => l !== targetExistingItem); selectedLines = [];
+              }
+            } else {
+              window.saveHistory();
+              lines = lines.filter(l => l !== targetExistingItem); selectedLines = [];
+            }
           } else {
-            lines = lines.filter(l => l !== targetExistingItem);
-            selectedLines = [];
+            window.saveHistory();
+            notes = notes.filter(n => n !== targetExistingItem); selectedNotes = [];
           }
         } else {
-          // 打込み
           handleSingleTap(laneIndex, x, y);
         }
       }
     } else {
       if (editMode === 'note' && selectedNotes.length > 0) openNoteContextMenu(e.clientX, e.clientY);
       else if (editMode === 'line' && selectedLines.length > 0) {
-        targetLine = selectedLines[0];
-        openLineContextMenu(e.clientX, e.clientY);
+        targetLine = selectedLines[0]; openLineContextMenu(e.clientX, e.clientY);
       }
     }
 
@@ -702,8 +743,19 @@ window.addEventListener('DOMContentLoaded', () => {
 
     window.saveHistory();
     if (editMode === 'note') {
-      notes.push({ bar: targetBar, relativeTime: snappedTime, row: targetRow });
-      selectedNotes = [];
+      // 重ね合わせ上限チェック（最大2個）
+      const sameNotes = notes.filter(n => n.bar === targetBar && Math.abs(n.relativeTime - snappedTime) < 0.0001 && n.row === targetRow);
+      if (sameNotes.length >= 2) {
+        showToast('⚠️同じタイミング・同じ形状のノーツは2つまでしか配置できません');
+        return;
+      }
+      const newNote = {
+        id: `N_${String(noteIdCounter++).padStart(3, '0')}`,
+        bar: targetBar, relativeTime: snappedTime, row: targetRow,
+        lineId: '', genTiming: null, path: null, sizePointers: null, sizeEasings: null, rotation: 0, rotDir: 'none'
+      };
+      notes.push(newNote);
+      selectedNotes = [newNote]; targetNote = newNote;
     } else {
       const newLine = {
         id: `PL_${String(lineIdCounter++).padStart(3, '0')}`,
@@ -716,7 +768,7 @@ window.addEventListener('DOMContentLoaded', () => {
     playKickSound();
   }
 
-  // --- コピー＆ペースト ---
+  // --- コピー・ペースト ---
   function updatePastePreview(laneIndex, x, y, clientX, clientY) {
     if (clipboard.length === 0) return;
     const barWidth = laneCanvases[laneIndex].width / BARS_PER_LANE;
@@ -746,8 +798,7 @@ window.addEventListener('DOMContentLoaded', () => {
   window.copySelected = function() {
     if (selectedNotes.length === 0) return;
     clipboard = JSON.parse(JSON.stringify(selectedNotes));
-    isPasteMode = true;
-    closeContextMenu();
+    isPasteMode = true; closeContextMenu();
     showToast('コピーしました。貼り付けたいグリッドをタップしてください');
   };
 
@@ -766,21 +817,68 @@ window.addEventListener('DOMContentLoaded', () => {
     renderAllLanes();
   };
 
-  window.deleteSelected = function() {
+  window.deleteSelectedNotes = function() {
     window.saveHistory();
     notes = notes.filter(n => !selectedNotes.includes(n));
-    selectedNotes = [];
+    selectedNotes = []; targetNote = null;
     closeContextMenu(); renderAllLanes();
   };
 
-  // --- 判定ライン設定メニュー ---
+  // --- メニュー表示 ---
   function openNoteContextMenu(x, y) {
+    if (selectedNotes.length === 0) return;
     const menu = document.getElementById('note-context-menu');
-    document.getElementById('note-menu-title').innerText = `${selectedNotes.length}個 選択中`;
-    menu.style.left = `${Math.min(x, window.innerWidth - 140)}px`;
-    menu.style.top = `${Math.min(y, window.innerHeight - 120)}px`;
+    const isSingle = selectedNotes.length === 1;
+    const shapes = new Set(selectedNotes.map(n => n.row));
+    const sameShape = shapes.size === 1;
+
+    document.getElementById('note-menu-title').innerText = isSingle ? `ノーツ設定` : `${selectedNotes.length}個 選択中 (${sameShape ? '同一形状' : '複数形状'})`;
+
+    // ボタン制御
+    document.getElementById('note-id-container').style.display = (!isSingle && !sameShape) ? 'none' : 'flex';
+    document.getElementById('btn-note-gen').innerText = isSingle ? '発生タイミング設定' : '発生タイミング一括設定';
+    document.getElementById('btn-note-path').innerText = isSingle ? '軌道設定' : 'ノーツ軌道一括設定';
+    document.getElementById('btn-note-size').innerText = isSingle ? '大きさ変化設定' : '大きさ一括設定';
+    document.getElementById('btn-note-rot').innerText = isSingle ? '回転設定' : '回転一括設定';
+    document.getElementById('btn-note-add-switch').style.display = isSingle ? 'block' : 'none';
+
+    if (isSingle) {
+      targetNote = selectedNotes[0];
+      const txt = document.getElementById('txt-note-line-id');
+      txt.value = targetNote.lineId || '';
+      updateIdCheckIcon();
+
+      // アイコン状態更新
+      document.getElementById('icon-note-gen').innerText = targetNote.genTiming ? '✅' : '';
+      document.getElementById('icon-note-path').innerText = targetNote.path ? '✅' : '';
+      document.getElementById('icon-note-size').innerText = targetNote.sizePointers ? '🔧' : '';
+      document.getElementById('icon-note-rot').innerText = (targetNote.rotation !== 0 || targetNote.rotDir !== 'none') ? '🔧' : '';
+
+      // ノーツ追加/切り替えボタンラベル
+      const samePlaceNotes = notes.filter(n => n.bar === targetNote.bar && Math.abs(n.relativeTime - targetNote.relativeTime) < 0.0001 && n.row === targetNote.row);
+      document.getElementById('btn-note-add-switch').innerText = (samePlaceNotes.length > 1) ? 'ノーツ切り替え' : 'ノーツ追加';
+    }
+
+    menu.style.left = `${Math.min(x, window.innerWidth - 180)}px`;
+    menu.style.top = `${Math.min(y, window.innerHeight - 260)}px`;
     menu.style.display = 'block';
   }
+
+  function updateIdCheckIcon() {
+    const txt = document.getElementById('txt-note-line-id');
+    const val = txt.value.trim();
+    const exists = lines.some(l => l.id === val);
+    document.getElementById('lbl-id-check').style.display = (val && exists) ? 'inline' : 'none';
+  }
+
+  window.onNoteIdInputBlur = function() {
+    const val = document.getElementById('txt-note-line-id').value.trim();
+    if (selectedNotes.length === 1 && targetNote) {
+      window.saveHistory();
+      targetNote.lineId = val;
+    }
+    updateIdCheckIcon();
+  };
 
   function openLineContextMenu(x, y) {
     if (!targetLine) return;
@@ -797,8 +895,8 @@ window.addEventListener('DOMContentLoaded', () => {
       document.getElementById('lbl-line-status').style.display = targetLine.position ? 'none' : 'inline';
     }
 
-    menu.style.left = `${Math.min(x, window.innerWidth - 160)}px`;
-    menu.style.top = `${Math.min(y, window.innerHeight - 180)}px`;
+    menu.style.left = `${Math.min(x, window.innerWidth - 170)}px`;
+    menu.style.top = `${Math.min(y, window.innerHeight - 200)}px`;
     menu.style.display = 'block';
   }
 
@@ -807,107 +905,102 @@ window.addEventListener('DOMContentLoaded', () => {
     document.getElementById('line-context-menu').style.display = 'none';
   };
 
-  // 同一タイミング・形状のID切り替え
-  window.cycleLineID = function() {
-    if (!targetLine) return;
-    const sameGroup = lines.filter(l => l.bar === targetLine.bar && Math.abs(l.relativeTime - targetLine.relativeTime) < 0.0001 && l.shape === targetLine.shape);
-    if (sameGroup.length <= 1) return;
-    const idx = sameGroup.indexOf(targetLine);
-    targetLine = sameGroup[(idx + 1) % sameGroup.length];
-    document.getElementById('lbl-line-id').innerText = targetLine.id;
-    document.getElementById('lbl-line-status').style.display = targetLine.position ? 'none' : 'inline';
+  // ノーツ追加 / 重ね合わせ切り替え
+  window.handleAddOrSwitchNote = function() {
+    if (!targetNote) return;
+    const samePlaceNotes = notes.filter(n => n.bar === targetNote.bar && Math.abs(n.relativeTime - targetNote.relativeTime) < 0.0001 && n.row === targetNote.row);
+    
+    if (samePlaceNotes.length === 1) {
+      // 2つ目のノーツ追加
+      window.saveHistory();
+      const newNote = {
+        id: `N_${String(noteIdCounter++).padStart(3, '0')}`,
+        bar: targetNote.bar, relativeTime: targetNote.relativeTime, row: targetNote.row,
+        lineId: '', genTiming: null, path: null, sizePointers: null, sizeEasings: null, rotation: 0, rotDir: 'none'
+      };
+      notes.push(newNote);
+      targetNote = newNote; selectedNotes = [newNote];
+      showToast('2つ目のノーツを追加しました');
+    } else {
+      // トグル切り替え
+      const idx = samePlaceNotes.indexOf(targetNote);
+      targetNote = samePlaceNotes[(idx + 1) % samePlaceNotes.length];
+      selectedNotes = [targetNote];
+      showToast('選択ノーツを切り替えました');
+    }
+    openNoteContextMenu(window.innerWidth / 2, window.innerHeight / 2);
     renderAllLanes();
   };
 
-  window.addNewLineSameTiming = function() {
-    if (!targetLine) return;
-    window.saveHistory();
-    const newLine = {
-      id: `PL_${String(lineIdCounter++).padStart(3, '0')}`,
-      bar: targetLine.bar, relativeTime: targetLine.relativeTime, row: targetLine.row,
-      shape: targetLine.shape,
-      position: targetLine.position ? JSON.parse(JSON.stringify(targetLine.position)) : null,
-      expire: targetLine.expire ? JSON.parse(JSON.stringify(targetLine.expire)) : null
-    };
-    lines.push(newLine);
-    targetLine = newLine; selectedLines = [newLine];
-    openLineContextMenu(window.innerWidth / 2, window.innerHeight / 2);
-    renderAllLanes();
-    showToast(`判定ライン (${newLine.id}) を追加しました`);
-  };
-
-  window.deleteSelectedLine = function() {
-    window.saveHistory();
-    lines = lines.filter(l => !selectedLines.includes(l));
-    targetLine = null; selectedLines = [];
-    closeContextMenu(); renderAllLanes();
-  };
-
-  // --- 消失タイミング設定モード ---
+  // --- グリッド選択処理 (消失 / 発生) ---
   window.startExpireSelectMode = function() {
-    closeContextMenu();
-    isExpireSelectMode = true;
-    pendingExpireTiming = targetLine.expire ? JSON.parse(JSON.stringify(targetLine.expire)) : { bar: targetLine.bar, relativeTime: targetLine.relativeTime };
-    showToast('消失させたいタイミングのグリッドをタップしてください');
-    renderAllLanes();
+    closeContextMenu(); selectGridModeType = 'line_expire';
+    pendingSelectTiming = targetLine.expire ? JSON.parse(JSON.stringify(targetLine.expire)) : { bar: targetLine.bar, relativeTime: targetLine.relativeTime };
+    showToast('消失させたいタイミングのグリッドをタップしてください'); renderAllLanes();
   };
 
-  function handleExpireSelectTap(laneIndex, x, clientX, clientY) {
+  window.startGenTimingMode = function() {
+    closeContextMenu(); selectGridModeType = 'note_gen';
+    pendingSelectTiming = targetNote.genTiming ? JSON.parse(JSON.stringify(targetNote.genTiming)) : { bar: targetNote.bar, relativeTime: targetNote.relativeTime };
+    showToast('ノーツの発生タイミングのグリッドをタップしてください'); renderAllLanes();
+  };
+
+  function handleGridSelectTap(laneIndex, x, clientX, clientY) {
     const barWidth = laneCanvases[laneIndex].width / BARS_PER_LANE;
     const targetBar = laneIndex * BARS_PER_LANE + Math.floor(x / barWidth);
     const relativeX = (x % barWidth) / barWidth;
     const snappedTime = Math.floor(relativeX * gridMode) / gridMode;
 
-    // 発生時刻より過去には設定不可
-    if (targetBar < targetLine.bar || (targetBar === targetLine.bar && snappedTime < targetLine.relativeTime)) {
-      showToast('⚠️発生タイミングより過去には設定できません');
-      return;
+    if (selectGridModeType === 'line_expire') {
+      if (targetBar < targetLine.bar || (targetBar === targetLine.bar && snappedTime < targetLine.relativeTime)) {
+        showToast('⚠️発生タイミングより過去には設定できません'); return;
+      }
+    } else if (selectGridModeType === 'note_gen') {
+      // 選択中の全ノーツの最小時間チェック
+      const minNoteTime = Math.min(...selectedNotes.map(n => n.bar + n.relativeTime));
+      if (targetBar + snappedTime > minNoteTime) {
+        showToast('⚠️ノーツの再生タイミングより未来には設定できません'); return;
+      }
     }
 
-    pendingExpireTiming = { bar: targetBar, relativeTime: snappedTime };
-
-    const popover = document.getElementById('expire-confirm-popover');
+    pendingSelectTiming = { bar: targetBar, relativeTime: snappedTime };
+    const popover = document.getElementById('grid-select-popover');
     popover.style.left = `${Math.min(clientX + 10, window.innerWidth - 180)}px`;
     popover.style.top = `${Math.min(clientY + 10, window.innerHeight - 60)}px`;
     popover.style.display = 'flex';
     renderAllLanes();
   }
 
-  window.confirmExpireTiming = function() {
-    if (targetLine && pendingExpireTiming) {
-      window.saveHistory();
-      if (selectedLines.length > 1) {
-        selectedLines.forEach(l => l.expire = JSON.parse(JSON.stringify(pendingExpireTiming)));
-      } else {
-        targetLine.expire = pendingExpireTiming;
-      }
+  window.confirmGridSelect = function() {
+    window.saveHistory();
+    if (selectGridModeType === 'line_expire') {
+      if (selectedLines.length > 1) selectedLines.forEach(l => l.expire = JSON.parse(JSON.stringify(pendingSelectTiming)));
+      else if (targetLine) targetLine.expire = pendingSelectTiming;
       showToast('消失タイミングを設定しました');
+    } else if (selectGridModeType === 'note_gen') {
+      selectedNotes.forEach(n => n.genTiming = JSON.parse(JSON.stringify(pendingSelectTiming)));
+      showToast('発生タイミングを設定しました');
     }
-    cancelExpireTiming();
+    cancelGridSelect();
   };
 
-  window.cancelExpireTiming = function() {
-    isExpireSelectMode = false; pendingExpireTiming = null;
-    document.getElementById('expire-confirm-popover').style.display = 'none';
+  window.cancelGridSelect = function() {
+    selectGridModeType = null; pendingSelectTiming = null;
+    document.getElementById('grid-select-popover').style.display = 'none';
     renderAllLanes();
   };
 
-  // --- 位置・大きさ 16:9 編集 modal スクリーン ---
+  // --- 判定ライン 位置・大きさ (16:9 スクリーン) ---
   const screenModal = document.getElementById('position-modal');
   const screenCanvas = document.getElementById('screen-canvas');
   const screenCtx = screenCanvas.getContext('2d');
   let tempPos = { x: 480, y: 270, scale: 1.0, rotation: 0 };
-  let screenDragTarget = null; // 'move', 'scale', 'rotate'
-  let screenDragStart = null;
+  let screenDragTarget = null; let screenDragStart = null;
 
   window.openPositionModal = function() {
     if (!targetLine) return;
     closeContextMenu();
-    if (targetLine.position) {
-      tempPos = JSON.parse(JSON.stringify(targetLine.position));
-    } else {
-      tempPos = { x: 480, y: 270, scale: 1.0, rotation: 0 };
-    }
+    tempPos = targetLine.position ? JSON.parse(JSON.stringify(targetLine.position)) : { x: 480, y: 270, scale: 1.0, rotation: 0 };
     screenModal.style.display = 'flex';
     drawScreenCanvas();
   };
@@ -916,7 +1009,8 @@ window.addEventListener('DOMContentLoaded', () => {
     const w = screenCanvas.width; const h = screenCanvas.height;
     screenCtx.clearRect(0, 0, w, h);
     
-    // グリッド線（背景）
+    document.getElementById('lbl-pos-scale').innerText = `倍率: ${Math.round(tempPos.scale * 100)}%`;
+
     screenCtx.strokeStyle = '#222'; screenCtx.lineWidth = 1;
     for (let x = 0; x < w; x += 40) { screenCtx.beginPath(); screenCtx.moveTo(x, 0); screenCtx.lineTo(x, h); screenCtx.stroke(); }
     for (let y = 0; y < h; y += 40) { screenCtx.beginPath(); screenCtx.moveTo(0, y); screenCtx.lineTo(w, y); screenCtx.stroke(); }
@@ -926,16 +1020,18 @@ window.addEventListener('DOMContentLoaded', () => {
     screenCtx.rotate(tempPos.rotation * Math.PI / 180);
     screenCtx.scale(tempPos.scale, tempPos.scale);
 
-    // 図形描画
     screenCtx.fillStyle = '#009688'; screenCtx.strokeStyle = '#00ffff'; screenCtx.lineWidth = 3;
     const baseSize = 60;
     screenCtx.beginPath();
-    if (targetLine.shape === 'circle') {
-      screenCtx.arc(0, 0, baseSize / 2, 0, Math.PI * 2);
-    } else if (targetLine.shape === 'square') {
-      screenCtx.rect(-baseSize / 2, -baseSize / 2, baseSize, baseSize);
-    } else if (targetLine.shape === 'triangle') {
-      screenCtx.moveTo(0, -baseSize / 2); screenCtx.lineTo(baseSize / 2, baseSize / 2); screenCtx.lineTo(-baseSize / 2, baseSize / 2); screenCtx.closePath();
+    if (targetLine.shape === 'circle') screenCtx.arc(0, 0, baseSize / 2, 0, Math.PI * 2);
+    else if (targetLine.shape === 'square') screenCtx.rect(-baseSize / 2, -baseSize / 2, baseSize, baseSize);
+    else if (targetLine.shape === 'triangle') {
+      // 正三角形
+      const hTri = baseSize * (Math.sqrt(3) / 2);
+      screenCtx.moveTo(0, -hTri * (2/3));
+      screenCtx.lineTo(baseSize / 2, hTri * (1/3));
+      screenCtx.lineTo(-baseSize / 2, hTri * (1/3));
+      screenCtx.closePath();
     } else if (targetLine.shape === 'star') {
       for (let i = 0; i < 5; i++) {
         screenCtx.lineTo(Math.cos((18 + i * 72) * Math.PI / 180) * baseSize / 2, -Math.sin((18 + i * 72) * Math.PI / 180) * baseSize / 2);
@@ -947,19 +1043,11 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     screenCtx.fill(); screenCtx.stroke();
 
-    // 操作用ガイド（選択枠・ハンドル）
     screenCtx.strokeStyle = '#2196f3'; screenCtx.lineWidth = 1.5;
     screenCtx.strokeRect(-baseSize/2 - 10, -baseSize/2 - 10, baseSize + 20, baseSize + 20);
 
-    // 拡大ハンドル（右下）
-    screenCtx.fillStyle = '#2196f3';
-    screenCtx.fillRect(baseSize/2 + 5, baseSize/2 + 5, 10, 10);
-
-    // 回転ハンドル（上）
-    screenCtx.fillStyle = '#4caf50';
-    screenCtx.beginPath(); screenCtx.arc(0, -baseSize/2 - 25, 6, 0, Math.PI * 2); screenCtx.fill();
-    screenCtx.beginPath(); screenCtx.moveTo(0, -baseSize/2 - 10); screenCtx.lineTo(0, -baseSize/2 - 19); screenCtx.stroke();
-
+    screenCtx.fillStyle = '#2196f3'; screenCtx.fillRect(baseSize/2 + 5, baseSize/2 + 5, 10, 10);
+    screenCtx.fillStyle = '#4caf50'; screenCtx.beginPath(); screenCtx.arc(0, -baseSize/2 - 25, 6, 0, Math.PI * 2); screenCtx.fill();
     screenCtx.restore();
   }
 
@@ -967,15 +1055,11 @@ window.addEventListener('DOMContentLoaded', () => {
     const rect = screenCanvas.getBoundingClientRect();
     const mx = (e.clientX - rect.left) * (screenCanvas.width / rect.width);
     const my = (e.clientY - rect.top) * (screenCanvas.height / rect.height);
-
     const dist = Math.hypot(mx - tempPos.x, my - tempPos.y);
-    if (dist < 40 * tempPos.scale) {
-      screenDragTarget = 'move';
-    } else if (dist < 80 * tempPos.scale) {
-      screenDragTarget = 'scale';
-    } else {
-      screenDragTarget = 'rotate';
-    }
+
+    if (dist < 40 * tempPos.scale) screenDragTarget = 'move';
+    else if (dist < 80 * tempPos.scale) screenDragTarget = 'scale';
+    else screenDragTarget = 'rotate';
     screenDragStart = { x: mx, y: my, pos: JSON.parse(JSON.stringify(tempPos)) };
   });
 
@@ -1003,19 +1087,275 @@ window.addEventListener('DOMContentLoaded', () => {
 
   window.savePositionModal = function() {
     if (targetLine) {
-      window.saveHistory();
-      targetLine.position = JSON.parse(JSON.stringify(tempPos));
+      window.saveHistory(); targetLine.position = JSON.parse(JSON.stringify(tempPos));
       showToast(`配置を確定しました (${targetLine.id})`);
     }
-    closePositionModal();
+    closePositionModal(); renderAllLanes();
+  };
+
+  window.closePositionModal = function() { screenModal.style.display = 'none'; };
+
+  // --- ノーツ軌道編集 (16:9 スクリーン & 拍ごとにポインタ) ---
+  const pathModal = document.getElementById('path-modal');
+  const pathCanvas = document.getElementById('path-canvas');
+  const pathCtx = pathCanvas.getContext('2d');
+  let pathZoomList = [1.0, 1.5, 2.0];
+  let pathZoomIndex = 0;
+  let tempPathPointers = []; // [{x, y}]
+  let activePathPointerIdx = -1;
+  let isPathDragging = false;
+
+  window.openPathModal = function() {
+    if (!targetNote) return;
+    closeContextMenu();
+    tempPathPointers = targetNote.path ? JSON.parse(JSON.stringify(targetNote.path)) : [];
+    pathZoomIndex = 0;
+    pathModal.style.display = 'flex';
+    checkBeatPointerBtnCondition();
+    drawPathCanvas();
+  };
+
+  window.togglePathZoom = function() {
+    pathZoomIndex = (pathZoomIndex + 1) % pathZoomList.length;
+    document.getElementById('lbl-path-zoom').innerText = `ズーム: ${pathZoomList[pathZoomIndex] * 100}%`;
+    drawPathCanvas();
+  };
+
+  // 「拍ごとにポインタ」ボタン表示条件チェック
+  function checkBeatPointerBtnCondition() {
+    const btn = document.getElementById('btn-beat-pointers');
+    if (!targetNote || selectedNotes.length > 1) { btn.style.display = 'none'; return; }
+
+    const hasGen = targetNote.genTiming != null;
+    let durationBeats = 0;
+    if (hasGen) {
+      const startTime = targetNote.genTiming.bar + targetNote.genTiming.relativeTime;
+      const endTime = targetNote.bar + targetNote.relativeTime;
+      durationBeats = (endTime - startTime) * 4; // 1小節 = 4拍
+    }
+    const hasPath = tempPathPointers.length >= 2;
+
+    if (hasGen && durationBeats >= 1.0 && hasPath) {
+      btn.style.display = 'inline-block';
+    } else {
+      btn.style.display = 'none';
+    }
+  }
+
+  // 「拍ごとにポインタ」機能
+  window.addBeatPointers = function() {
+    if (!targetNote || tempPathPointers.length < 2 || !targetNote.genTiming) return;
+
+    const startTime = targetNote.genTiming.bar + targetNote.genTiming.relativeTime;
+    const endTime = targetNote.bar + targetNote.relativeTime;
+    const totalBeats = (endTime - startTime) * 4;
+
+    if (totalBeats < 1.0) return;
+
+    // パス全体の総延長を計算
+    let totalLength = 0;
+    let segLengths = [];
+    for (let i = 0; i < tempPathPointers.length - 1; i++) {
+      const len = Math.hypot(tempPathPointers[i+1].x - tempPathPointers[i].x, tempPathPointers[i+1].y - tempPathPointers[i].y);
+      segLengths.push(len); totalLength += len;
+    }
+    if (totalLength <= 0) return;
+
+    // 補間関数
+    function getPointAtRatio(r) {
+      r = Math.max(0, Math.min(1, r));
+      const targetDist = r * totalLength;
+      let accum = 0;
+      for (let i = 0; i < segLengths.length; i++) {
+        if (accum + segLengths[i] >= targetDist || i === segLengths.length - 1) {
+          const segR = segLengths[i] > 0 ? (targetDist - accum) / segLengths[i] : 0;
+          return {
+            x: tempPathPointers[i].x + (tempPathPointers[i+1].x - tempPathPointers[i].x) * segR,
+            y: tempPathPointers[i].y + (tempPathPointers[i+1].y - tempPathPointers[i].y) * segR
+          };
+        }
+        accum += segLengths[i];
+      }
+      return tempPathPointers[tempPathPointers.length - 1];
+    }
+
+    const numBeats = Math.floor(totalBeats);
+    let newPointers = [];
+
+    for (let b = 0; b <= numBeats; b++) {
+      const r = b / totalBeats;
+      const pt = getPointAtRatio(r);
+
+      // 二重打込み防止：既存ポインタと極めて近い場合は追加を回避
+      const isDuplicate = tempPathPointers.some(p => Math.hypot(p.x - pt.x, p.y - pt.x) < 3.0);
+      if (!isDuplicate) {
+        newPointers.push(pt);
+      }
+    }
+
+    // 拍ポインタをオリジナルへ組み込み・ソート
+    tempPathPointers.push(...newPointers);
+    showToast(`${newPointers.length}個の拍ポインタを追加しました`);
+    checkBeatPointerBtnCondition();
+    drawPathCanvas();
+  };
+
+  function drawPathCanvas() {
+    const w = pathCanvas.width; const h = pathCanvas.height;
+    pathCtx.clearRect(0, 0, w, h);
+    
+    const zoom = pathZoomList[pathZoomIndex];
+    pathCtx.save();
+    pathCtx.scale(1 / zoom, 1 / zoom);
+
+    // 背景ガイドライン
+    pathCtx.strokeStyle = '#222'; pathCtx.lineWidth = 1;
+    for (let x = 0; x < w * zoom; x += 40) { pathCtx.beginPath(); pathCtx.moveTo(x, 0); pathCtx.lineTo(x, h * zoom); pathCtx.stroke(); }
+
+    // 判定ライン描画
+    lines.filter(l => l.position).forEach(l => {
+      pathCtx.fillStyle = (targetNote && targetNote.lineId === l.id) ? ROW_COLORS[targetNote.row] : 'rgba(0,150,136,0.3)';
+      pathCtx.beginPath(); pathCtx.arc(l.position.x, l.position.y, 25 * l.position.scale, 0, Math.PI * 2); pathCtx.fill();
+      pathCtx.fillStyle = '#fff'; pathCtx.font = '12px sans-serif'; pathCtx.fillText(l.id, l.position.x - 15, l.position.y - 30);
+    });
+
+    // 軌道パス描画
+    if (tempPathPointers.length > 0) {
+      pathCtx.strokeStyle = '#007acc'; pathCtx.lineWidth = 2;
+      pathCtx.beginPath();
+      pathCtx.moveTo(tempPathPointers[0].x, tempPathPointers[0].y);
+      for (let i = 1; i < tempPathPointers.length; i++) pathCtx.lineTo(tempPathPointers[i].x, tempPathPointers[i].y);
+      pathCtx.stroke();
+
+      // ポインタ描画
+      tempPathPointers.forEach((p, idx) => {
+        pathCtx.fillStyle = (idx === 0) ? '#ff5252' : '#ffffff';
+        pathCtx.beginPath(); pathCtx.arc(p.x, p.y, (idx === activePathPointerIdx) ? 8 : 5, 0, Math.PI * 2); pathCtx.fill();
+      });
+    }
+
+    pathCtx.restore();
+
+    // 距離計算
+    let totalLen = 0;
+    for (let i = 0; i < tempPathPointers.length - 1; i++) totalLen += Math.hypot(tempPathPointers[i+1].x - tempPathPointers[i].x, tempPathPointers[i+1].y - tempPathPointers[i].y);
+    document.getElementById('lbl-path-length').innerText = `長さ: ${Math.round(totalLen)}px`;
+  }
+
+  pathCanvas.addEventListener('pointerdown', (e) => {
+    const rect = pathCanvas.getBoundingClientRect();
+    const zoom = pathZoomList[pathZoomIndex];
+    const mx = ((e.clientX - rect.left) * (pathCanvas.width / rect.width)) * zoom;
+    const my = ((e.clientY - rect.top) * (pathCanvas.height / rect.height)) * zoom;
+
+    // ポインタ選択判定
+    const hitIdx = tempPathPointers.findIndex(p => Math.hypot(p.x - mx, p.y - my) < 15);
+    if (hitIdx >= 0) {
+      activePathPointerIdx = hitIdx; isPathDragging = true;
+    } else {
+      // 判定ラインへの吸着チェック
+      const hitLine = lines.find(l => l.position && Math.hypot(l.position.x - mx, l.position.y - my) < 30 * l.position.scale);
+      const newPt = hitLine ? { x: hitLine.position.x, y: hitLine.position.y } : { x: mx, y: my };
+
+      if (hitLine && targetNote) targetNote.lineId = hitLine.id;
+      tempPathPointers.push(newPt);
+      activePathPointerIdx = tempPathPointers.length - 1;
+    }
+    checkBeatPointerBtnCondition();
+    drawPathCanvas();
+  });
+
+  pathCanvas.addEventListener('pointermove', (e) => {
+    if (!isPathDragging || activePathPointerIdx < 0) return;
+    const rect = pathCanvas.getBoundingClientRect();
+    const zoom = pathZoomList[pathZoomIndex];
+    const mx = ((e.clientX - rect.left) * (pathCanvas.width / rect.width)) * zoom;
+    const my = ((e.clientY - rect.top) * (pathCanvas.height / rect.height)) * zoom;
+
+    tempPathPointers[activePathPointerIdx] = { x: mx, y: my };
+    drawPathCanvas();
+  });
+
+  pathCanvas.addEventListener('pointerup', () => { isPathDragging = false; });
+
+  window.savePathModal = function() {
+    if (targetNote) {
+      window.saveHistory();
+      if (selectedNotes.length > 1) {
+        // 複数範囲選択時はID強制解除
+        const shapes = new Set(selectedNotes.map(n => n.row));
+        if (shapes.size > 1) selectedNotes.forEach(n => n.lineId = '');
+        selectedNotes.forEach(n => n.path = JSON.parse(JSON.stringify(tempPathPointers)));
+      } else {
+        targetNote.path = JSON.parse(JSON.stringify(tempPathPointers));
+      }
+      showToast('軌道を確定しました');
+    }
+    closePathModal(); renderAllLanes();
+  };
+
+  window.closePathModal = function() { pathModal.style.display = 'none'; };
+
+  // --- 回転設定モーダル ---
+  const rotationModal = document.getElementById('rotation-modal');
+  let tempRotDir = 'none';
+
+  window.openRotationModal = function() {
+    closeContextMenu();
+    tempRotDir = targetNote ? targetNote.rotDir : 'none';
+    document.getElementById('txt-rot-deg').value = targetNote ? targetNote.rotation : 0;
+    updateRotDirBtns();
+    rotationModal.style.display = 'flex';
+  };
+
+  window.setRotDir = function(dir) { tempRotDir = dir; updateRotDirBtns(); };
+
+  function updateRotDirBtns() {
+    document.getElementById('btn-rot-left').style.background = (tempRotDir === 'left') ? '#007acc' : '#444';
+    document.getElementById('btn-rot-none').style.background = (tempRotDir === 'none') ? '#007acc' : '#444';
+    document.getElementById('btn-rot-right').style.background = (tempRotDir === 'right') ? '#007acc' : '#444';
+  }
+
+  window.saveRotationModal = function() {
+    const deg = parseFloat(document.getElementById('txt-rot-deg').value) || 0;
+    window.saveHistory();
+    selectedNotes.forEach(n => { n.rotation = deg; n.rotDir = tempRotDir; });
+    showToast('回転設定を保存しました');
+    closeRotationModal(); renderAllLanes();
+  };
+
+  window.closeRotationModal = function() { rotationModal.style.display = 'none'; };
+
+  // --- 大きさ変化設定 ---
+  window.startSizeConfigMode = function() {
+    if (!targetNote.lineId || !targetNote.genTiming) {
+      showToast('⚠️判定ラインID紐付けと発生タイミングの両方が設定済みでないと操作できません');
+      return;
+    }
+    closeContextMenu();
+    selectGridModeType = 'size_config';
+    showToast('補助線上のグリッドをタップしてサイズ倍率を設定してください');
     renderAllLanes();
   };
 
-  window.closePositionModal = function() {
-    screenModal.style.display = 'none';
+  window.confirmSizeConfig = function() {
+    window.saveHistory();
+    selectedNotes.forEach(n => n.sizePointers = [100]);
+    showToast('大きさ変化を設定しました');
+    cancelSizeConfig();
   };
 
-  // --- 再生エンジン ---
+  window.cancelSizeConfig = function() {
+    selectGridModeType = null;
+    document.getElementById('size-config-popover').style.display = 'none';
+    renderAllLanes();
+  };
+
+  window.saveSizeValModal = function() { document.getElementById('size-val-modal').style.display = 'none'; };
+  window.closeSizeValModal = function() { document.getElementById('size-val-modal').style.display = 'none'; };
+  window.setEasingType = function(type) { document.getElementById('easing-modal').style.display = 'none'; };
+
+  // 再生制御
   let lastPlayedTime = -1;
   function updatePlayback() {
     if (!isPlaying) return;
@@ -1048,9 +1388,7 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   function togglePlayLane(laneIndex) {
-    if (isPlaying && playingLaneIndex === laneIndex) {
-      stopPlay(); playingLaneIndex = -1; return;
-    }
+    if (isPlaying && playingLaneIndex === laneIndex) { stopPlay(); playingLaneIndex = -1; return; }
     stopPlay(); playingLaneIndex = laneIndex;
     playBtns[laneIndex].classList.add('playing'); playBtns[laneIndex].innerText = '停止';
     startPlay(laneIndex * BARS_PER_LANE);
@@ -1070,4 +1408,3 @@ window.addEventListener('DOMContentLoaded', () => {
 </script>
 </body>
 </html>
-
