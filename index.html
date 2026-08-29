@@ -548,7 +548,6 @@ window.addEventListener('DOMContentLoaded', () => {
       ctx.globalAlpha = (editMode === 'line') ? 0.3 : 1.0;
       ctx.fillRect(x + 1, y + 1, cellWidth - 2, ROW_HEIGHT - 2);
 
-      // 中央揃えの図形アイコン
       ctx.fillStyle = '#fff'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       let icon = '';
       if (n.shape === 'circle') icon = '⚪︎';
@@ -573,7 +572,6 @@ window.addEventListener('DOMContentLoaded', () => {
       ctx.globalAlpha = (editMode === 'note') ? 0.4 : 1.0;
       ctx.fillRect(x + 1, y + 1, cellWidth - 2, ROW_HEIGHT - 2);
 
-      // 中央揃えの図形アイコン（5,6行目は非表示）
       ctx.fillStyle = '#fff'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       let icon = '';
       if (l.shape === 'circle') icon = '⚪︎';
@@ -683,20 +681,25 @@ window.addEventListener('DOMContentLoaded', () => {
       targetExistingItem = lines.find(l => l.bar === targetBar && Math.abs(l.relativeTime - snappedTime) < 0.0001 && l.row === targetRow);
     }
 
-    isLongTap = false; clearTimeout(tapTimer);
+    isLongTap = false;
+    clearTimeout(tapTimer);
 
     if (targetExistingItem && !isPasteMode) {
+      const clientX = e.clientX;
+      const clientY = e.clientY;
       tapTimer = setTimeout(() => {
         isLongTap = true;
         if (editMode === 'note') {
-          targetNote = targetExistingItem; selectedNotes = [targetNote];
-          openNoteContextMenu(e.clientX, e.clientY);
+          targetNote = targetExistingItem;
+          selectedNotes = [targetNote];
+          openNoteContextMenu(clientX, clientY);
         } else {
-          targetLine = targetExistingItem; selectedLines = [targetLine];
-          openLineContextMenu(e.clientX, e.clientY);
+          targetLine = targetExistingItem;
+          selectedLines = [targetLine];
+          openLineContextMenu(clientX, clientY);
         }
         renderAllLanes();
-      }, 500);
+      }, 450);
     }
   }
 
@@ -745,7 +748,7 @@ window.addEventListener('DOMContentLoaded', () => {
       handleGenTimeSelectTap(laneIndex, x, e.clientX, e.clientY);
     } else if (isPasteMode) {
       updatePastePreview(laneIndex, x, y, e.clientX, e.clientY);
-    } else if (dist < 5) {
+    } else if (dist < 8) {
       if (!isLongTap) {
         if (targetExistingItem) {
           if (editMode === 'note') {
@@ -753,7 +756,6 @@ window.addEventListener('DOMContentLoaded', () => {
             notes = notes.filter(n => n !== targetExistingItem);
             selectedNotes = []; targetNote = null;
           } else {
-            // 判定ラインの削除保護確認
             if (targetExistingItem.position) {
               if (confirm('配置設定済の判定ラインを削除してもよろしいですか？')) {
                 window.saveHistory();
@@ -872,10 +874,15 @@ window.addEventListener('DOMContentLoaded', () => {
   };
 
   window.deleteSelectedNotes = function() {
+    if (selectedNotes.length === 0) return;
     window.saveHistory();
-    notes = notes.filter(n => !selectedNotes.includes(n));
-    selectedNotes = []; targetNote = null;
-    closeContextMenu(); renderAllLanes();
+    const toDelete = new Set(selectedNotes);
+    notes = notes.filter(n => !toDelete.has(n));
+    selectedNotes = [];
+    targetNote = null;
+    closeContextMenu();
+    renderAllLanes();
+    showToast('選択したノーツを削除しました');
   };
 
   // --- ノーツ設定メニュー ---
@@ -889,19 +896,28 @@ window.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('note-menu-title').innerText = isSingle ? 'ノーツ設定' : `${selectedNotes.length}個 選択中`;
 
-    // ID紐付けボックス表示コントロール
+    // ID紐付けボックス表示コントロール（厳格化）
     const idWrapper = document.getElementById('id-box-wrapper');
     const txtId = document.getElementById('txt-line-id');
     const iconStatus = document.getElementById('id-status-icon');
 
+    let showIdBox = false;
+
     if (isSingle || isSameShapeMulti) {
-      const allSameId = selectedNotes.every(n => n.lineId === selectedNotes[0].lineId);
-      idWrapper.style.display = 'flex';
-      txtId.value = allSameId ? (selectedNotes[0].lineId || '') : '';
-      updateIdStatusIcon();
-    } else {
-      idWrapper.style.display = 'none';
+      const ids = selectedNotes.map(n => n.lineId);
+      const allSame = ids.every(id => id === ids[0]);
+      const commonId = ids[0];
+
+      if (allSame) {
+        if (!commonId || lines.some(l => l.id === commonId)) {
+          showIdBox = true;
+          txtId.value = commonId || '';
+          updateIdStatusIcon();
+        }
+      }
     }
+
+    idWrapper.style.display = showIdBox ? 'flex' : 'none';
 
     // ボタンの表示制御
     document.getElementById('btn-note-gen').innerText = isSingle ? '発生タイミング設定' : '発生タイミング一括設定';
@@ -910,13 +926,11 @@ window.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-note-rotate').innerText = isSingle ? '回転設定' : '回転一括設定';
     document.getElementById('btn-note-add').style.display = isSingle ? 'block' : 'none';
 
-    // 重ね合わせ追加/切り替えボタンラベル
     if (isSingle) {
       const sameGroup = notes.filter(n => n.bar === targetNote.bar && Math.abs(n.relativeTime - targetNote.relativeTime) < 0.0001 && n.shape === targetNote.shape);
       document.getElementById('btn-note-add').innerText = sameGroup.length > 1 ? 'ノーツ切り替え' : 'ノーツ追加';
     }
 
-    // 各種設定済みアイコン設定
     document.getElementById('icon-note-gen').innerText = targetNote?.genTime ? '✅' : '';
     document.getElementById('icon-note-path').innerText = targetNote?.path ? '✅' : '';
     document.getElementById('icon-note-scale').innerText = targetNote?.scalePointers ? '🔧' : '';
@@ -940,8 +954,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (!matchedLine) {
       iconStatus.innerText = '❌';
     } else {
-      // 追加仕様②：異なる形状の判定ラインID紐付け拒否バリデーション
-      const currentShape = targetNote ? targetNote.shape : selectedNotes[0].shape;
+      const currentShape = (selectedNotes[0] || targetNote)?.shape;
       if (matchedLine.shape !== currentShape) {
         iconStatus.innerText = '⚠️形状不一致';
       } else {
@@ -954,18 +967,18 @@ window.addEventListener('DOMContentLoaded', () => {
     const val = document.getElementById('txt-line-id').value.trim();
     if (!val) {
       selectedNotes.forEach(n => n.lineId = null);
-      updateIdStatusIcon(); return;
+      updateIdStatusIcon();
+      return;
     }
 
     const matchedLine = lines.find(l => l.id === val);
-    const currentShape = targetNote ? targetNote.shape : selectedNotes[0].shape;
+    const currentShape = (selectedNotes[0] || targetNote)?.shape;
 
     if (!matchedLine) {
       showToast('⚠️存在する判定ラインIDを入力してください');
       document.getElementById('txt-line-id').value = '';
       selectedNotes.forEach(n => n.lineId = null);
     } else if (matchedLine.shape !== currentShape) {
-      // 追加仕様②
       showToast('⚠️同じ形状の判定ラインIDしか紐付けできません');
       document.getElementById('txt-line-id').value = '';
       selectedNotes.forEach(n => n.lineId = null);
@@ -1093,8 +1106,6 @@ window.addEventListener('DOMContentLoaded', () => {
     };
     lines.push(newLine);
     targetLine = newLine; selectedLines = [newLine];
-    openLineContextMenu(window.innerWidth / 2, window.innerHeight / 2);
-    renderAllLanes();
     showToast(`判定ライン (${newLine.id}) を追加しました`);
   };
 
@@ -1190,7 +1201,6 @@ window.addEventListener('DOMContentLoaded', () => {
     } else if (targetLine.shape === 'square') {
       screenCtx.rect(-baseSize / 2, -baseSize / 2, baseSize, baseSize);
     } else if (targetLine.shape === 'triangle') {
-      // 正三角形
       const hTri = baseSize * (Math.sqrt(3) / 2);
       screenCtx.moveTo(0, -hTri * 2 / 3);
       screenCtx.lineTo(baseSize / 2, hTri / 3);
@@ -1243,7 +1253,8 @@ window.addEventListener('DOMContentLoaded', () => {
     } else if (screenDragTarget === 'scale') {
       const origDist = Math.hypot(screenDragStart.x - screenDragStart.pos.x, screenDragStart.y - screenDragStart.pos.y);
       const newDist = Math.hypot(mx - screenDragStart.pos.x, my - screenDragStart.pos.y);
-      tempPos.scale = Math.max(0.2, Math.min(3.0, screenDragStart.pos.scale * (newDist / (origDist || 1))));
+      // ★修正：5%〜1000%
+      tempPos.scale = Math.max(0.05, Math.min(10.0, screenDragStart.pos.scale * (newDist / (origDist || 1))));
     } else if (screenDragTarget === 'rotate') {
       const rad = Math.atan2(my - tempPos.y, mx - tempPos.x);
       tempPos.rotation = Math.round(rad * (180 / Math.PI) + 90);
@@ -1302,9 +1313,8 @@ window.addEventListener('DOMContentLoaded', () => {
 
     const genBarTime = targetNote.genTime.bar + targetNote.genTime.relativeTime;
     const hitBarTime = targetNote.bar + targetNote.relativeTime;
-    const diffBarTime = hitBarTime - genBarTime; // 小節数単位
+    const diffBarTime = hitBarTime - genBarTime;
 
-    // 発生〜再生までの時間が 1拍（0.25小節）以上
     if (diffBarTime >= 0.25 && tempPathPointers.length >= 2) {
       btnBeat.style.display = 'inline-block';
     } else {
@@ -1321,6 +1331,15 @@ window.addEventListener('DOMContentLoaded', () => {
     pathCtx.translate(w / 2, h / 2);
     pathCtx.scale(1 / zoom, 1 / zoom);
     pathCtx.translate(-w / 2, -h / 2);
+
+    // ★修正：100%時の白い点線枠
+    if (pathZoomLevels[pathZoomIdx] === 100) {
+      pathCtx.strokeStyle = '#ffffff';
+      pathCtx.lineWidth = 2;
+      pathCtx.setLineDash([6, 4]);
+      pathCtx.strokeRect(0, 0, w, h);
+      pathCtx.setLineDash([]);
+    }
 
     // グリッド背景
     pathCtx.strokeStyle = '#222'; pathCtx.lineWidth = 1;
@@ -1362,7 +1381,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     document.getElementById('lbl-path-length').innerText = Math.round(totalLength);
 
-    // ポインタを描画（初回:赤丸、2回目以降:白丸）
+    // ポインタを描画
     tempPathPointers.forEach((p, idx) => {
       pathCtx.fillStyle = (idx === 0) ? '#f44336' : '#ffffff';
       pathCtx.beginPath(); pathCtx.arc(p.x, p.y, 6, 0, Math.PI * 2); pathCtx.fill();
@@ -1378,19 +1397,48 @@ window.addEventListener('DOMContentLoaded', () => {
     const rawX = (e.clientX - rect.left) * (pathCanvas.width / rect.width);
     const rawY = (e.clientY - rect.top) * (pathCanvas.height / rect.height);
     
-    // ズーム考慮の座標計算
     const cx = pathCanvas.width / 2; const cy = pathCanvas.height / 2;
     const mx = cx + (rawX - cx) * zoom;
     const my = cy + (rawY - cy) * zoom;
 
     // 既存ポインタのドラッグ判定
-    const clickedIdx = tempPathPointers.findIndex(p => Math.hypot(p.x - mx, p.y - my) < 12 * zoom);
+    const clickedIdx = tempPathPointers.findIndex(p => Math.hypot(p.x - mx, p.y - my) < 14 * zoom);
     if (clickedIdx >= 0) {
       pathDragIdx = clickedIdx;
       return;
     }
 
-    // 判定ライン吸着判定
+    // ★パス線分へのヒット判定を太くして優先（曲線化）
+    let insertIdx = -1;
+    let insertPos = null;
+    const hitThreshold = 18 * zoom;
+
+    for (let i = 0; i < tempPathPointers.length - 1; i++) {
+      const p1 = tempPathPointers[i];
+      const p2 = tempPathPointers[i + 1];
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const t = Math.max(0, Math.min(1, ((mx - p1.x) * dx + (my - p1.y) * dy) / (len * len)));
+      const closestX = p1.x + t * dx;
+      const closestY = p1.y + t * dy;
+      const dist = Math.hypot(mx - closestX, my - closestY);
+
+      if (dist < hitThreshold) {
+        insertIdx = i + 1;
+        insertPos = { x: closestX, y: closestY };
+        break;
+      }
+    }
+
+    if (insertIdx >= 0 && insertPos) {
+      tempPathPointers.splice(insertIdx, 0, insertPos);
+      checkBeatPointerButtonCondition();
+      drawPathCanvas();
+      return;
+    }
+
+    // 判定ライン吸着
     let hitX = mx; let hitY = my;
     if (targetNote) {
       const activeLines = lines.filter(l => l.bar === targetNote.bar && Math.abs(l.relativeTime - targetNote.relativeTime) < 0.0001 && l.position);
@@ -1421,18 +1469,16 @@ window.addEventListener('DOMContentLoaded', () => {
 
   pathCanvas.addEventListener('pointerup', () => { pathDragIdx = -1; });
 
-  // 追加仕様①：「拍ごとにポインタ」自動配置機能
   window.autoGenerateBeatPointers = function() {
     if (!targetNote || tempPathPointers.length < 2 || !targetNote.genTime) return;
 
     window.saveHistory();
     const genBarTime = targetNote.genTime.bar + targetNote.genTime.relativeTime;
     const hitBarTime = targetNote.bar + targetNote.relativeTime;
-    const totalBeats = Math.round((hitBarTime - genBarTime) * 4); // 1小節=4拍
+    const totalBeats = Math.round((hitBarTime - genBarTime) * 4);
 
     if (totalBeats <= 0) return;
 
-    // 現在の総パス長さを計算
     let totalLen = 0;
     const lengths = [];
     for (let i = 1; i < tempPathPointers.length; i++) {
@@ -1461,7 +1507,6 @@ window.addEventListener('DOMContentLoaded', () => {
         accum += lengths[i];
       }
 
-      // 既存ポインタと重複させないよう重なりチェック調整
       const isDuplicate = newPointers.some(np => Math.hypot(np.x - pX, np.y - pY) < 3);
       if (!isDuplicate) {
         newPointers.push({ x: pX, y: pY });
@@ -1517,7 +1562,9 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // --- 大きさ変化設定 ---
   window.startScaleConfigMode = function() {
-    if (!targetNote?.lineId || !targetNote?.genTime) {
+    // ★修正：複数選択時も全ノーツが条件を満たしているかチェック
+    const invalid = selectedNotes.some(n => !n.lineId || !n.genTime);
+    if (invalid) {
       showToast('⚠️判定ラインID紐付けと発生タイミング設定の両方を完了させてください');
       return;
     }
