@@ -302,8 +302,6 @@ window.addEventListener('DOMContentLoaded', () => {
   let isGenTimeSelectMode = false;
   let pendingGenTiming = null;
 
-  let isScaleConfigMode = false;
-
   let dragStart = null;
   let dragCurrent = null;
   let activeLaneIndex = -1;
@@ -676,7 +674,6 @@ window.addEventListener('DOMContentLoaded', () => {
 
     if (editMode === 'note') {
       const sameGroup = notes.filter(n => n.bar === targetBar && Math.abs(n.relativeTime - snappedTime) < 0.0001 && n.row === targetRow);
-      // グリッドに打ち込まれているノーツを取得（複数ある場合は先頭）
       targetExistingItem = sameGroup[0] || null;
     } else {
       targetExistingItem = lines.find(l => l.bar === targetBar && Math.abs(l.relativeTime - snappedTime) < 0.0001 && l.row === targetRow);
@@ -691,10 +688,8 @@ window.addEventListener('DOMContentLoaded', () => {
       tapTimer = setTimeout(() => {
         isLongTap = true;
         if (editMode === 'note') {
-          // 重複ノーツ含め同タイミング・同レーンの全ノーツを選択対象に更新
-          const sameGroupAll = notes.filter(n => n.bar === targetExistingItem.bar && Math.abs(n.relativeTime - targetExistingItem.relativeTime) < 0.0001 && n.row === targetExistingItem.row);
           targetNote = targetExistingItem;
-          selectedNotes = sameGroupAll.length > 0 ? sameGroupAll : [targetNote];
+          selectedNotes = [targetNote];
           openNoteContextMenu(clientX, clientY);
         } else {
           targetLine = targetExistingItem;
@@ -702,7 +697,7 @@ window.addEventListener('DOMContentLoaded', () => {
           openLineContextMenu(clientX, clientY);
         }
         renderAllLanes();
-      }, 500);
+      }, 450);
     }
   }
 
@@ -754,29 +749,21 @@ window.addEventListener('DOMContentLoaded', () => {
     } else if (dist < 8) {
       if (!isLongTap) {
         if (targetExistingItem) {
+          // ★修正：タップしたノーツを選択してノーツ設定メニューを展開する
           if (editMode === 'note') {
-            window.saveHistory();
-            notes = notes.filter(n => n !== targetExistingItem);
-            selectedNotes = []; targetNote = null;
+            targetNote = targetExistingItem;
+            selectedNotes = [targetNote];
+            openNoteContextMenu(e.clientX, e.clientY);
           } else {
-            if (targetExistingItem.position) {
-              if (confirm('配置設定済の判定ラインを削除してもよろしいですか？')) {
-                window.saveHistory();
-                lines = lines.filter(l => l !== targetExistingItem);
-                selectedLines = []; targetLine = null;
-              }
-            } else {
-              window.saveHistory();
-              lines = lines.filter(l => l !== targetExistingItem);
-              selectedLines = []; targetLine = null;
-            }
+            targetLine = targetExistingItem;
+            selectedLines = [targetLine];
+            openLineContextMenu(e.clientX, e.clientY);
           }
         } else {
           handleSingleTap(laneIndex, x, y);
         }
       }
     } else {
-      // スライド範囲選択時の判定処理
       if (editMode === 'note' && selectedNotes.length > 0) {
         targetNote = selectedNotes[0];
         openNoteContextMenu(e.clientX, e.clientY);
@@ -892,14 +879,15 @@ window.addEventListener('DOMContentLoaded', () => {
   // --- ノーツ設定メニュー ---
   function openNoteContextMenu(x, y) {
     if (!targetNote && selectedNotes.length === 0) return;
+    if (!targetNote && selectedNotes.length > 0) targetNote = selectedNotes[0];
+
     const menu = document.getElementById('note-context-menu');
-    const isSingle = selectedNotes.length === 1;
+    const isSingle = selectedNotes.length <= 1;
     const shapes = Array.from(new Set(selectedNotes.map(n => n.shape)));
     const isSameShapeMulti = !isSingle && shapes.length === 1;
 
     document.getElementById('note-menu-title').innerText = isSingle ? 'ノーツ設定' : `${selectedNotes.length}個 選択中`;
 
-    // ID紐付けボックス表示コントロール
     const idWrapper = document.getElementById('id-box-wrapper');
     const txtId = document.getElementById('txt-line-id');
 
@@ -911,24 +899,21 @@ window.addEventListener('DOMContentLoaded', () => {
       const commonId = ids[0];
 
       if (allSame) {
-        if (!commonId || lines.some(l => l.id === commonId)) {
-          showIdBox = true;
-          txtId.value = commonId || '';
-          updateIdStatusIcon();
-        }
+        showIdBox = true;
+        txtId.value = commonId || '';
+        updateIdStatusIcon();
       }
     }
 
-    idWrapper.style.display = showIdBox ? 'flex' : 'none';
+    if (idWrapper) idWrapper.style.display = showIdBox ? 'flex' : 'none';
 
-    // ボタンの表示制御
     document.getElementById('btn-note-gen').innerText = isSingle ? '発生タイミング設定' : '発生タイミング一括設定';
     document.getElementById('btn-note-path').innerText = isSingle ? '軌道設定' : 'ノーツ軌道一括設定';
     document.getElementById('btn-note-scale').innerText = isSingle ? '大きさ変化設定' : '大きさ一括設定';
     document.getElementById('btn-note-rotate').innerText = isSingle ? '回転設定' : '回転一括設定';
     document.getElementById('btn-note-add').style.display = isSingle ? 'block' : 'none';
 
-    if (isSingle) {
+    if (isSingle && targetNote) {
       const sameGroup = notes.filter(n => n.bar === targetNote.bar && Math.abs(n.relativeTime - targetNote.relativeTime) < 0.0001 && n.shape === targetNote.shape);
       document.getElementById('btn-note-add').innerText = sameGroup.length > 1 ? 'ノーツ切り替え' : 'ノーツ追加';
     }
@@ -1341,12 +1326,10 @@ window.addEventListener('DOMContentLoaded', () => {
       pathCtx.setLineDash([]);
     }
 
-    // グリッド背景
     pathCtx.strokeStyle = '#222'; pathCtx.lineWidth = 1;
     for (let x = -w; x < w * 2; x += 40) { pathCtx.beginPath(); pathCtx.moveTo(x, -h); pathCtx.lineTo(x, h * 2); pathCtx.stroke(); }
     for (let y = -h; y < h * 2; y += 40) { pathCtx.beginPath(); pathCtx.moveTo(-w, y); pathCtx.lineTo(w * 2, y); pathCtx.stroke(); }
 
-    // 同時間の配置済み判定ラインを描画
     if (targetNote) {
       const activeLines = lines.filter(l => l.bar === targetNote.bar && Math.abs(l.relativeTime - targetNote.relativeTime) < 0.0001 && l.position);
       for (let l of activeLines) {
@@ -1368,7 +1351,6 @@ window.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    // 軌道パス（青線）
     let totalLength = 0;
     if (tempPathPointers.length > 1) {
       pathCtx.strokeStyle = '#2196f3'; pathCtx.lineWidth = 2; pathCtx.beginPath();
@@ -1381,7 +1363,6 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     document.getElementById('lbl-path-length').innerText = Math.round(totalLength);
 
-    // ポインタを描画
     tempPathPointers.forEach((p, idx) => {
       pathCtx.fillStyle = (idx === 0) ? '#f44336' : '#ffffff';
       pathCtx.beginPath(); pathCtx.arc(p.x, p.y, 6, 0, Math.PI * 2); pathCtx.fill();
@@ -1401,7 +1382,6 @@ window.addEventListener('DOMContentLoaded', () => {
     const mx = cx + (rawX - cx) * zoom;
     const my = cy + (rawY - cy) * zoom;
 
-    // 既存ポインタのドラッグ判定
     const clickedIdx = tempPathPointers.findIndex(p => Math.hypot(p.x - mx, p.y - my) < 14 * zoom);
     if (clickedIdx >= 0) {
       pathDragIdx = clickedIdx;
@@ -1437,7 +1417,6 @@ window.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    // 判定ライン吸着
     let hitX = mx; let hitY = my;
     if (targetNote) {
       const activeLines = lines.filter(l => l.bar === targetNote.bar && Math.abs(l.relativeTime - targetNote.relativeTime) < 0.0001 && l.position);
