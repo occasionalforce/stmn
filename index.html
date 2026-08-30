@@ -1,1638 +1,655 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>音ゲー 譜面エディタ</title>
-<style>
-  * { 
-    box-sizing: border-box; margin: 0; padding: 0; 
-    user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
-  }
-  body { 
-    font-family: sans-serif; background: #121212; color: #fff; 
-    overflow-x: hidden; touch-action: manipulation;
-  }
-  
-  /* 上部固定メニュー */
-  #top-menu {
-    position: fixed; top: 0; left: 0; width: 100vw; height: 95px;
-    background: #1e1e1e; border-bottom: 2px solid #333; z-index: 100;
-    display: flex; flex-direction: column; justify-content: space-around; padding: 6px 10px;
-  }
-  .menu-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  
-  .btn-large {
-    height: 40px; padding: 0 12px; font-size: 14px; font-weight: bold;
-    border: none; border-radius: 6px; cursor: pointer; color: white;
-  }
-  .btn-primary { background: #007acc; }
-  .btn-accent { background: #ff9800; }
-  .btn-danger { background: #e53935; }
-  .btn-mode { background: #9c27b0; }
-  .btn-mode.line-mode { background: #009688; }
-  .btn-small { height: 26px; font-size: 11px; padding: 0 6px; background: #444; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
-  
-  .input-group { display: flex; align-items: center; gap: 4px; font-size: 12px; }
-  .input-group input[type="number"] { width: 50px; background: #2a2a2a; color: #fff; border: 1px solid #555; padding: 2px; }
-  .input-group input[type="range"] { width: 60px; }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>音ゲーエディタ & インゲーム</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            background-color: #1a1a1a;
+            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+            touch-action: none;
+        }
+        #app-container {
+            display: flex;
+            flex-direction: column;
+            width: 100vw;
+            height: 100vh;
+        }
+        /* ヘッダー・モード切り替え */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 16px;
+            background-color: #2a2a2a;
+            border-bottom: 1px solid #444;
+            height: 50px;
+        }
+        .mode-selector button {
+            padding: 6px 12px;
+            margin-right: 8px;
+            background-color: #444;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .mode-selector button.active {
+            background-color: #007acc;
+            font-weight: bold;
+        }
 
-  /* トースト通知 */
-  #toast {
-    position: fixed; top: 105px; left: 50%; transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.85); color: #fff; padding: 8px 16px;
-    border-radius: 20px; font-size: 13px; font-weight: bold; border: 1px solid #555;
-    z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.4s ease;
-  }
-  #toast.show { opacity: 1; }
+        /* エディタ領域 */
+        #editor-view {
+            flex: 1;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #121212;
+            overflow: hidden;
+        }
+        #grid-container {
+            position: relative;
+            display: grid;
+            gap: 2px;
+            background-color: #333;
+            padding: 2px;
+            border-radius: 4px;
+        }
+        .grid-cell {
+            background-color: #222;
+            border-radius: 2px;
+            position: relative;
+            cursor: pointer;
+        }
+        .grid-cell.has-note {
+            background-color: #005999;
+        }
+        .grid-cell.selected {
+            outline: 2px solid #ffcc00;
+            z-index: 2;
+        }
+        .grid-cell.has-judge-line {
+            background-color: #008040;
+        }
 
-  /* 下部レーンエリア */
-  #editor-container { margin-top: 105px; padding: 10px; display: flex; flex-direction: column; gap: 12px; }
-  .lane-row { 
-    display: flex; align-items: center; gap: 6px; background: #181818; 
-    padding: 6px; border-radius: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch;
-  }
-  .lane-row.line-mode-bg { background: #102422; }
-  .lane-header {
-    width: 70px; height: 140px; flex-shrink: 0; display: flex; flex-direction: column;
-    justify-content: space-between; align-items: center;
-  }
-  .bar-num-label { font-size: 11px; font-weight: bold; color: #4fc3f7; text-align: center; }
-  .play-here-btn {
-    width: 65px; height: 85px; background: #9c27b0; color: white;
-    border: none; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer;
-  }
-  .play-here-btn.playing { background: #e53935; }
-  
-  canvas { background: #000; border-radius: 4px; flex-shrink: 0; touch-action: none; }
+        /* ③ 範囲選択中のノーツ：紫色に点滅 */
+        @keyframes purple-blink {
+            0% { background-color: #8a2be2; opacity: 1; }
+            50% { background-color: #da70d6; opacity: 0.5; }
+            100% { background-color: #8a2be2; opacity: 1; }
+        }
+        .grid-cell.selecting-blink {
+            animation: purple-blink 0.4s infinite;
+            z-index: 3;
+        }
 
-  /* コンテキストメニュー */
-  .context-menu {
-    display: none; position: fixed; z-index: 200; background: #2a2a2a;
-    border: 1px solid #555; border-radius: 6px; padding: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-    min-width: 170px;
-  }
-  .context-menu button {
-    display: block; width: 100%; margin: 4px 0; padding: 6px 10px;
-    background: #444; color: #fff; border: none; border-radius: 4px; cursor: pointer; text-align: left; font-size: 12px;
-  }
-  .context-menu button:disabled { opacity: 0.4; cursor: not-allowed; }
-  .text-danger { color: #ff5252; font-weight: bold; }
-  .text-success { color: #4caf50; font-weight: bold; }
+        /* 範囲選択用オーバーレイ矩形 */
+        #selection-box {
+            position: absolute;
+            border: 1px dashed #da70d6;
+            background-color: rgba(138, 43, 226, 0.2);
+            pointer-events: none;
+            display: none;
+            z-index: 10;
+        }
 
-  .id-box-container {
-    margin: 4px 0; padding: 4px 6px; background: #1a1a1a; border: 1px solid #555; border-radius: 4px;
-    display: flex; align-items: center; justify-content: space-between; font-size: 12px; cursor: pointer;
-  }
-  .id-box-container input {
-    width: 100%; background: transparent; border: none; color: #fff; font-size: 12px; outline: none;
-  }
+        /* サブメニュー・設定パネル */
+        .settings-panel {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(30, 30, 30, 0.95);
+            border: 1px solid #555;
+            border-radius: 8px;
+            padding: 12px 16px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            display: none;
+            z-index: 20;
+            min-width: 280px;
+        }
+        .settings-panel.active {
+            display: block;
+        }
+        .settings-panel h3 {
+            font-size: 14px;
+            margin-bottom: 8px;
+            color: #00aaff;
+            border-bottom: 1px solid #444;
+            padding-bottom: 4px;
+        }
+        .panel-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+        .panel-row input, .panel-row select {
+            background-color: #333;
+            color: #fff;
+            border: 1px solid #555;
+            padding: 4px;
+            border-radius: 4px;
+        }
+        .panel-buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .panel-buttons button {
+            padding: 4px 10px;
+            border: none;
+            border-radius: 4px;
+            background-color: #007acc;
+            color: #fff;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .panel-buttons button.close-btn {
+            background-color: #666;
+        }
 
-  /* 貼り付け仮置き確定UI */
-  #paste-popover, #expire-confirm-popover, #gen-time-popover {
-    display: none; position: fixed; z-index: 300; background: #1e1e1e;
-    border: 2px solid #007acc; border-radius: 8px; padding: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.7); display: flex; gap: 8px;
-  }
-  #paste-popover button, #expire-confirm-popover button, #gen-time-popover button {
-    padding: 6px 12px; font-size: 12px; font-weight: bold; border: none; border-radius: 4px; cursor: pointer;
-  }
-  .btn-confirm { background: #4caf50; color: white; }
-  .btn-cancel { background: #f44336; color: white; }
-
-  /* 16:9 スクリーン Modal */
-  .modal-overlay {
-    display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-    background: rgba(0,0,0,0.9); z-index: 500; flex-direction: column; align-items: center; justify-content: center;
-  }
-  .screen-container {
-    position: relative; width: 80vw; height: 45vw; max-width: 960px; max-height: 540px;
-    background: #111; border: 2px solid #009688; box-shadow: 0 0 20px rgba(0,150,136,0.5);
-    overflow: hidden; touch-action: none;
-  }
-  .screen-canvas { width: 100%; height: 100%; }
-  .modal-controls { margin-top: 15px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-  .modal-controls button { padding: 8px 18px; font-size: 14px; font-weight: bold; border-radius: 6px; border: none; cursor: pointer; }
-
-  /* パラメータ設定 モーダル */
-  .dialog-modal {
-    display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    z-index: 600; background: #2a2a2a; border: 2px solid #555; border-radius: 8px; padding: 16px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.8); width: 280px; flex-direction: column; gap: 12px;
-  }
-  .dialog-modal h4 { font-size: 14px; color: #fff; text-align: center; }
-  .dialog-modal input[type="number"] { width: 100%; padding: 6px; background: #111; color: #fff; border: 1px solid #666; border-radius: 4px; }
-  .dialog-row { display: flex; justify-content: space-around; }
-</style>
+        /* インゲーム表示用キャンバス（簡易） */
+        #ingame-view {
+            flex: 1;
+            display: none;
+            background-color: #000;
+            position: relative;
+        }
+    </style>
 </head>
-<body oncontextmenu="return false;">
+<body>
 
-<div id="top-menu">
-  <div class="menu-row">
-    <button id="btn-play-all" class="btn-large btn-primary" onclick="togglePlayAll()">最初から再生</button>
-    <button class="btn-large btn-primary" onclick="undo()">やり直し</button>
-    <button class="btn-large btn-primary" onclick="redo()">進める</button>
-    <button id="btn-grid" class="btn-large btn-accent" onclick="toggleGridMode()">16分グリッド</button>
-    <button id="btn-edit-mode" class="btn-large btn-mode" onclick="toggleEditMode()">ノーツ設定モード</button>
-    
-    <div style="flex-grow: 1;"></div>
-    <button class="btn-small">音声ファイル読込</button>
-    <button class="btn-small" onclick="document.getElementById('file-input-chart').click()">譜面ファイル読込</button>
-    <button class="btn-small" onclick="saveChartData()">譜面保存</button>
-    <input type="file" id="file-input-chart" accept=".json" style="display:none" onchange="loadChartData(event)">
-  </div>
-  
-  <div class="menu-row">
-    <div class="input-group">
-      <label>BPM:</label>
-      <input type="number" id="bpm-input" value="120" onchange="updateBPM()">
+<div id="app-container">
+    <header>
+        <div class="mode-selector">
+            <button id="btn-mode-notes" class="active">ノーツ設定</button>
+            <button id="btn-mode-judge">判定ライン設定</button>
+            <button id="btn-mode-play">インゲーム再生</button>
+        </div>
+        <div id="status-display" style="font-size: 12px; color: #aaa;">モード: ノーツ設定</div>
+    </header>
+
+    <div id="editor-view">
+        <div id="grid-container"></div>
+        <div id="selection-box"></div>
+
+        <!-- ノーツ設定メニュー -->
+        <div id="notes-settings-panel" class="settings-panel">
+            <h3>ノーツ設定メニュー</h3>
+            <div class="panel-row">
+                <label for="note-trajectory">軌道パターン:</label>
+                <select id="note-trajectory">
+                    <option value="straight">直線</option>
+                    <option value="curve-left">左カーブ</option>
+                    <option value="curve-right">右カーブ</option>
+                </select>
+            </div>
+            <div class="panel-row">
+                <label for="note-size">サイズ:</label>
+                <input type="number" id="note-size" value="1.0" step="0.1" min="0.5" max="3.0">
+            </div>
+            <div class="panel-buttons">
+                <button id="btn-delete-notes" style="background-color: #cc2222;">削除</button>
+                <button class="close-btn" id="btn-close-notes-panel">閉じる</button>
+            </div>
+        </div>
+
+        <!-- 判定ライン設定メニュー -->
+        <div id="judge-settings-panel" class="settings-panel">
+            <h3>判定ライン設定メニュー</h3>
+            <div class="panel-row">
+                <label for="judge-type">タイプ:</label>
+                <select id="judge-type">
+                    <option value="normal">通常</option>
+                    <option value="wide">ワイド</option>
+                </select>
+            </div>
+            <div class="panel-buttons">
+                <button class="close-btn" id="btn-close-judge-panel">閉じる</button>
+            </div>
+        </div>
     </div>
-    <div class="input-group">
-      <label>オフセット(秒):</label>
-      <input type="number" id="offset-input" value="0" step="0.1">
+
+    <div id="ingame-view">
+        <div style="color: white; padding: 20px;">インゲーム画面（ダミー）</div>
     </div>
-    <div class="input-group">
-      <label>曲音量:</label>
-      <input type="range" id="bgm-vol" min="0" max="100" value="50" oninput="document.getElementById('bgm-val').innerText=this.value">
-      <span id="bgm-val">50</span>
-    </div>
-    <div class="input-group">
-      <label>ノーツ音量:</label>
-      <input type="range" id="se-vol" min="0" max="100" value="50" oninput="document.getElementById('se-val').innerText=this.value">
-      <span id="se-val">50</span>
-    </div>
-  </div>
-</div>
-
-<div id="toast">コピーしました。貼り付けたいグリッドをタップしてください</div>
-
-<div id="editor-container"></div>
-
-<!-- ノーツ設定メニュー -->
-<div id="note-context-menu" class="context-menu">
-  <div style="font-size:11px; color:#aaa; margin-bottom:4px;" id="note-menu-title">ノーツ設定</div>
-  
-  <div id="id-box-wrapper" class="id-box-container" onclick="focusIdInput()">
-    <input type="text" id="txt-line-id" placeholder="ID紐付け未設定" onblur="onIdInputBlur()" onkeydown="if(event.key==='Enter')this.blur()">
-    <span id="id-status-icon"></span>
-  </div>
-
-  <button id="btn-note-copy" onclick="copySelected()">コピー</button>
-  <button id="btn-note-del" onclick="deleteSelectedNotes()">削除</button>
-  <button id="btn-note-gen" onclick="startGenTimeSelectMode()">発生タイミング設定 <span id="icon-note-gen"></span></button>
-  <button id="btn-note-path" onclick="openPathModal()">軌道設定 <span id="icon-note-path"></span></button>
-  <button id="btn-note-scale" onclick="startScaleConfigMode()">大きさ変化設定 <span id="icon-note-scale"></span></button>
-  <button id="btn-note-rotate" onclick="openRotateModal()">回転設定 <span id="icon-note-rotate"></span></button>
-  <button id="btn-note-add" onclick="toggleAddSwitchNote()">ノーツ追加</button>
-  <button onclick="closeContextMenu()">閉じる</button>
-</div>
-
-<!-- 判定ライン設定メニュー -->
-<div id="line-context-menu" class="context-menu">
-  <div style="font-size:11px; color:#aaa; margin-bottom:4px;" id="line-menu-title">判定ラインメニュー</div>
-  <button id="btn-line-id" onclick="cycleLineID()">ID: <span id="lbl-line-id">PL_001</span> <span id="lbl-line-status" class="text-danger">⚠️配置未設定</span></button>
-  <button id="btn-line-pos" onclick="openPositionModal()">表示位置と大きさ</button>
-  <button id="btn-line-expire" onclick="startExpireSelectMode()">消失タイミング</button>
-  <button id="btn-line-add" onclick="addNewLineSameTiming()">判定ライン追加</button>
-  <button id="btn-line-delete" onclick="deleteSelectedLine()">削除</button>
-  <button onclick="closeContextMenu()">閉じる</button>
-</div>
-
-<!-- 貼り付けポップオーバー -->
-<div id="paste-popover">
-  <button class="btn-confirm" onclick="confirmPaste()">貼り付ける</button>
-  <button class="btn-cancel" onclick="cancelPaste()">やめる</button>
-</div>
-
-<!-- 消失タイミング選択ポップオーバー -->
-<div id="expire-confirm-popover">
-  <button class="btn-confirm" onclick="confirmExpireTiming()">決定</button>
-  <button class="btn-cancel" onclick="cancelExpireTiming()">キャンセル</button>
-</div>
-
-<!-- 発生タイミング選択ポップオーバー -->
-<div id="gen-time-popover">
-  <button class="btn-confirm" onclick="confirmGenTiming()">決定</button>
-  <button class="btn-cancel" onclick="cancelGenTiming()">キャンセル</button>
-</div>
-
-<!-- 判定ライン 位置・大きさ 編集スクリーン (16:9) -->
-<div id="position-modal" class="modal-overlay">
-  <div class="screen-container">
-    <canvas id="screen-canvas" class="screen-canvas" width="960" height="540"></canvas>
-  </div>
-  <div class="modal-controls">
-    <span style="font-size:14px; color:#aaa;">倍率: <span id="lbl-pos-scale">100</span>%</span>
-    <button class="btn-confirm" onclick="savePositionModal()">決定</button>
-    <button class="btn-cancel" onclick="closePositionModal()">キャンセル</button>
-  </div>
-</div>
-
-<!-- ノーツ 軌道設定 スクリーン (16:9) -->
-<div id="path-modal" class="modal-overlay">
-  <div class="screen-container" id="path-screen-container">
-    <canvas id="path-canvas" class="screen-canvas" width="960" height="540"></canvas>
-  </div>
-  <div class="modal-controls">
-    <button class="btn-small" style="height:32px;" onclick="cyclePathZoom()">🔍 ズーム: <span id="lbl-path-zoom">100</span>%</button>
-    <span style="font-size:12px; color:#aaa;">軌道長さ: <span id="lbl-path-length">0</span>px</span>
-    <button id="btn-beat-pointer" class="btn-accent" style="display:none;" onclick="autoGenerateBeatPointers()">拍ごとにポインタ</button>
-    <button class="btn-confirm" onclick="savePathModal()">決定</button>
-    <button class="btn-cancel" onclick="closePathModal()">キャンセル</button>
-  </div>
-</div>
-
-<!-- 回転設定モーダル -->
-<div id="rotate-modal" class="dialog-modal">
-  <h4>ノーツ回転設定</h4>
-  <div class="dialog-row">
-    <button id="btn-rot-left" class="btn-small" onclick="setRotDir('left')">↰ 左回転</button>
-    <button id="btn-rot-none" class="btn-small" onclick="setRotDir('none')">✖️ なし</button>
-    <button id="btn-rot-right" class="btn-small" onclick="setRotDir('right')">↱ 右回転</button>
-  </div>
-  <div style="font-size:12px;">
-    1拍あたりの角度(度):
-    <input type="number" id="num-rot-deg" value="0">
-  </div>
-  <div class="dialog-row">
-    <button class="btn-confirm" onclick="saveRotateConfig()">決定</button>
-    <button class="btn-cancel" onclick="closeRotateModal()">キャンセル</button>
-  </div>
-</div>
-
-<!-- サイズ倍率設定モーダル -->
-<div id="scale-modal" class="dialog-modal">
-  <h4>サイズ倍率設定 (%)</h4>
-  <input type="number" id="num-scale-val" value="100">
-  <div class="dialog-row">
-    <button class="btn-confirm" onclick="saveScalePointerVal()">決定</button>
-    <button class="btn-cancel" onclick="closeScaleModal()">キャンセル</button>
-  </div>
 </div>
 
 <script>
-window.addEventListener('DOMContentLoaded', () => {
-  const BARS_PER_LANE = 4;
-  const TOTAL_LANES = 32;
-  const ROW_HEIGHT = 20;
-  const ROW_COLORS = ['#f44336', '#2196f3', '#ffeb3b', '#ff9800', '#9e9e9e', '#616161'];
-  const SHAPES = ['circle', 'square', 'triangle', 'star', 'irregular', 'irregular'];
-
-  let notes = [];
-  let lines = [];
-  let lineIdCounter = 1;
-
-  let editMode = 'note';
-  let gridMode = 16;
-  let undoStack = [];
-  let redoStack = [];
-  let bpm = 120;
-
-  let selectedNotes = [];
-  let selectedLines = [];
-  let targetLine = null;
-  let targetNote = null;
-  let clipboard = [];
-  let previewNotes = [];
-  let isPasteMode = false;
-
-  let isExpireSelectMode = false;
-  let pendingExpireTiming = null;
-
-  let isGenTimeSelectMode = false;
-  let pendingGenTiming = null;
-
-  let isScaleConfigMode = false;
-
-  let dragStart = null;
-  let dragCurrent = null;
-  let activeLaneIndex = -1;
-
-  let tapTimer = null;
-  let isLongTap = false;
-  let targetExistingItem = null;
-
-  let audioCtx = null;
-  let isPlaying = false;
-  let playStartBar = 0;
-  let playStartTime = 0;
-  let animFrameId = null;
-  let playingLaneIndex = -1;
-
-  let flashState = false;
-  setInterval(() => {
-    flashState = !flashState;
-    if (isExpireSelectMode || isGenTimeSelectMode) renderAllLanes();
-  }, 300);
-
-  function showToast(msg) {
-    const toast = document.getElementById('toast');
-    toast.innerText = msg;
-    toast.classList.add('show');
-    setTimeout(() => { toast.classList.remove('show'); }, 2000);
-  }
-
-  function initAudio() {
-    if (!audioCtx) {
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      audioCtx = new AudioContext();
-    }
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-  }
-
-  function playKickSound() {
-    initAudio();
-    const seVol = document.getElementById('se-vol').value / 100;
-    if (seVol <= 0 || !audioCtx) return;
-
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(150, audioCtx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
-    gain.gain.setValueAtTime(seVol, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.12);
-  }
-
-  window.saveHistory = function() {
-    undoStack.push(JSON.stringify({ notes, lines, lineIdCounter }));
-    if (undoStack.length > 30) undoStack.shift();
-    redoStack = [];
-  };
-
-  window.undo = function() {
-    if (undoStack.length === 0) return;
-    redoStack.push(JSON.stringify({ notes, lines, lineIdCounter }));
-    const data = JSON.parse(undoStack.pop());
-    notes = data.notes; lines = data.lines; lineIdCounter = data.lineIdCounter;
-    renderAllLanes();
-  };
-
-  window.redo = function() {
-    if (redoStack.length === 0) return;
-    undoStack.push(JSON.stringify({ notes, lines, lineIdCounter }));
-    const data = JSON.parse(redoStack.pop());
-    notes = data.notes; lines = data.lines; lineIdCounter = data.lineIdCounter;
-    renderAllLanes();
-  };
-
-  window.toggleGridMode = function() {
-    gridMode = (gridMode === 16) ? 24 : 16;
-    document.getElementById('btn-grid').innerText = gridMode + '分グリッド';
-    updateCanvasSizes();
-    renderAllLanes();
-  };
-
-  window.toggleEditMode = function() {
-    editMode = (editMode === 'note') ? 'line' : 'note';
-    const btn = document.getElementById('btn-edit-mode');
-    if (editMode === 'line') {
-      btn.innerText = '判定ライン設定モード';
-      btn.className = 'btn-large btn-mode line-mode';
-      showToast('判定ライン設定モードに切り替えました');
-    } else {
-      btn.innerText = 'ノーツ設定モード';
-      btn.className = 'btn-large btn-mode';
-      showToast('ノーツ設定モードに切り替えました');
-    }
-    cancelExpireTiming();
-    cancelGenTiming();
-    cancelPaste();
-    closeContextMenu();
-    document.querySelectorAll('.lane-row').forEach(el => {
-      if (editMode === 'line') el.classList.add('line-mode-bg');
-      else el.classList.remove('line-mode-bg');
-    });
-    renderAllLanes();
-  };
-
-  window.updateBPM = function() {
-    bpm = parseFloat(document.getElementById('bpm-input').value) || 120;
-  };
-
-  window.saveChartData = function() {
-    const chartData = {
-      bpm, offset: parseFloat(document.getElementById('offset-input').value) || 0,
-      notes, lines, lineIdCounter
-    };
-    const blob = new Blob([JSON.stringify(chartData, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `chart_${Date.now()}.json`;
-    a.click();
-    showToast('譜面を保存しました');
-  };
-
-  window.loadChartData = function(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const data = JSON.parse(evt.target.result);
-        window.saveHistory();
-        notes = data.notes || [];
-        lines = data.lines || [];
-        lineIdCounter = data.lineIdCounter || (lines.length + 1);
-        if (data.bpm) { bpm = data.bpm; document.getElementById('bpm-input').value = bpm; }
-        renderAllLanes();
-        showToast('譜面を読み込みました');
-      } catch (err) {
-        alert('譜面ファイルの読み込みに失敗しました');
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  const container = document.getElementById('editor-container');
-  const laneCanvases = [];
-  const playBtns = [];
-
-  function updateCanvasSizes() {
-    const canvasWidth = 1280;
-    const canvasHeight = ROW_HEIGHT * 7;
-    laneCanvases.forEach(canvas => {
-      canvas.width = canvasWidth; canvas.height = canvasHeight;
-      canvas.style.width = canvasWidth + 'px'; canvas.style.height = canvasHeight + 'px';
-    });
-  }
-
-  function initLanes() {
-    container.innerHTML = '';
-    for (let l = 0; l < TOTAL_LANES; l++) {
-      const rowDiv = document.createElement('div');
-      rowDiv.className = 'lane-row';
-
-      const headerDiv = document.createElement('div');
-      headerDiv.className = 'lane-header';
-
-      const barLabel = document.createElement('div');
-      barLabel.className = 'bar-num-label';
-      const startBarNum = l * BARS_PER_LANE + 1;
-      barLabel.innerText = `${startBarNum}〜${startBarNum + BARS_PER_LANE - 1}\n小節`;
-
-      const btn = document.createElement('button');
-      btn.className = 'play-here-btn';
-      btn.innerText = 'ここから\n再生';
-      btn.onclick = () => togglePlayLane(l);
-
-      headerDiv.appendChild(barLabel); headerDiv.appendChild(btn);
-
-      const canvas = document.createElement('canvas');
-      canvas.addEventListener('pointerdown', (e) => onPointerDown(e, l, canvas));
-      canvas.addEventListener('pointermove', (e) => onPointerMove(e, l, canvas));
-      canvas.addEventListener('pointerup', (e) => onPointerUp(e, l, canvas));
-
-      rowDiv.appendChild(headerDiv); rowDiv.appendChild(canvas);
-      container.appendChild(rowDiv);
-      laneCanvases.push(canvas); playBtns.push(btn);
-    }
-    updateCanvasSizes();
-    renderAllLanes();
-  }
-
-  function drawLane(laneIndex, playheadBar = -1) {
-    const canvas = laneCanvases[laneIndex];
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const w = canvas.width; const h = canvas.height;
-    ctx.clearRect(0, 0, w, h);
-    
-    const barWidth = w / BARS_PER_LANE;
-    const startBar = laneIndex * BARS_PER_LANE;
-
-    ctx.fillStyle = (editMode === 'line') ? '#0d3834' : '#222';
-    ctx.fillRect(0, 0, w, ROW_HEIGHT);
-    ctx.fillStyle = '#4fc3f7'; ctx.font = 'bold 11px sans-serif';
-    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-
-    for (let b = 0; b < BARS_PER_LANE; b++) {
-      const x = b * barWidth;
-      ctx.fillText(`${startBar + b + 1} 小節`, x + 6, ROW_HEIGHT / 2);
-      ctx.strokeStyle = '#4fc3f7'; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
-    }
-
-    const halfBeatInterval = gridMode / 8;
-    for (let b = 0; b < BARS_PER_LANE; b++) {
-      const startX = b * barWidth;
-      for (let i = 0; i < gridMode; i++) {
-        const x = startX + (i / gridMode) * barWidth;
-        if (i === 0) continue;
-        ctx.strokeStyle = (i % halfBeatInterval === 0) ? '#ffffff' : '#2a2a2a';
-        ctx.lineWidth = (i % halfBeatInterval === 0) ? 2 : 1;
-        ctx.beginPath(); ctx.moveTo(x, ROW_HEIGHT); ctx.lineTo(x, h); ctx.stroke();
-      }
-    }
-
-    for (let r = 0; r <= 6; r++) {
-      const y = ROW_HEIGHT + r * ROW_HEIGHT;
-      ctx.lineWidth = (r % 2 === 0) ? 2 : 1;
-      ctx.strokeStyle = (r % 2 === 0) ? '#666' : '#333';
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
-    }
-
-    const endBar = startBar + BARS_PER_LANE;
-    const cellWidth = barWidth / gridMode;
-
-    // --- ノーツ描画 ---
-    const laneNotes = notes.filter(n => n.bar >= startBar && n.bar < endBar);
-    for (let n of laneNotes) {
-      const x = ((n.bar - startBar) + n.relativeTime) * barWidth;
-      const y = ROW_HEIGHT + n.row * ROW_HEIGHT;
-      ctx.fillStyle = ROW_COLORS[n.row];
-      ctx.globalAlpha = (editMode === 'line') ? 0.3 : 1.0;
-      ctx.fillRect(x + 1, y + 1, cellWidth - 2, ROW_HEIGHT - 2);
-
-      ctx.fillStyle = '#fff'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      let icon = '';
-      if (n.shape === 'circle') icon = '⚪︎';
-      else if (n.shape === 'square') icon = '□';
-      else if (n.shape === 'triangle') icon = '△';
-      else if (n.shape === 'star') icon = '⭐︎';
-      if (icon) ctx.fillText(icon, x + cellWidth / 2, y + ROW_HEIGHT / 2);
-
-      if (editMode === 'note' && (selectedNotes.includes(n) || targetNote === n)) {
-        ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 2; ctx.strokeRect(x, y, cellWidth, ROW_HEIGHT);
-      }
-    }
-    ctx.globalAlpha = 1.0;
-
-    // --- 判定ライン描画 ---
-    const laneLines = lines.filter(l => l.bar >= startBar && l.bar < endBar);
-    for (let l of laneLines) {
-      const x = ((l.bar - startBar) + l.relativeTime) * barWidth;
-      const y = ROW_HEIGHT + l.row * ROW_HEIGHT;
-      
-      ctx.fillStyle = l.position ? '#009688' : '#e91e63';
-      ctx.globalAlpha = (editMode === 'note') ? 0.4 : 1.0;
-      ctx.fillRect(x + 1, y + 1, cellWidth - 2, ROW_HEIGHT - 2);
-
-      ctx.fillStyle = '#fff'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      let icon = '';
-      if (l.shape === 'circle') icon = '⚪︎';
-      else if (l.shape === 'square') icon = '□';
-      else if (l.shape === 'triangle') icon = '△';
-      else if (l.shape === 'star') icon = '⭐︎';
-      if (icon) ctx.fillText(icon, x + cellWidth / 2, y + ROW_HEIGHT / 2);
-
-      if (editMode === 'line' && (selectedLines.includes(l) || targetLine === l)) {
-        ctx.strokeStyle = '#ffeb3b'; ctx.lineWidth = 2; ctx.strokeRect(x, y, cellWidth, ROW_HEIGHT);
-      }
-    }
-    ctx.globalAlpha = 1.0;
-
-    // --- 消失タイミング選択時の補助線 ---
-    if (isExpireSelectMode && targetLine) {
-      const genX = ((targetLine.bar - startBar) + targetLine.relativeTime) * barWidth;
-      const genY = ROW_HEIGHT + targetLine.row * ROW_HEIGHT + ROW_HEIGHT / 2;
-      if (pendingExpireTiming) {
-        const expX = ((pendingExpireTiming.bar - startBar) + pendingExpireTiming.relativeTime) * barWidth;
-        if (pendingExpireTiming.bar >= startBar && pendingExpireTiming.bar < endBar) {
-          if (flashState) { ctx.fillStyle = 'rgba(255, 235, 59, 0.4)'; ctx.fillRect(expX, ROW_HEIGHT, cellWidth, h - ROW_HEIGHT); }
-        }
-        ctx.strokeStyle = '#2196f3'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
-        ctx.beginPath(); ctx.moveTo(genX, genY); ctx.lineTo(expX + cellWidth / 2, genY); ctx.stroke();
-        ctx.setLineDash([]);
-      }
-    }
-
-    // --- 発生タイミング選択時の補助線 ---
-    if (isGenTimeSelectMode && targetNote) {
-      const hitX = ((targetNote.bar - startBar) + targetNote.relativeTime) * barWidth;
-      const hitY = ROW_HEIGHT + targetNote.row * ROW_HEIGHT + ROW_HEIGHT / 2;
-      if (pendingGenTiming) {
-        const genX = ((pendingGenTiming.bar - startBar) + pendingGenTiming.relativeTime) * barWidth;
-        if (pendingGenTiming.bar >= startBar && pendingGenTiming.bar < endBar) {
-          if (flashState) { ctx.fillStyle = 'rgba(255, 235, 59, 0.4)'; ctx.fillRect(genX, ROW_HEIGHT, cellWidth, h - ROW_HEIGHT); }
-        }
-        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
-        ctx.beginPath(); ctx.moveTo(hitX, hitY); ctx.lineTo(genX + cellWidth / 2, hitY); ctx.stroke();
-        ctx.setLineDash([]);
-      }
-    }
-
-    // --- 仮置きノーツ（コピー後の貼り付けプレビュー） ---
-    if (isPasteMode && previewNotes.length > 0) {
-      const previewLaneNotes = previewNotes.filter(n => n.bar >= startBar && n.bar < endBar);
-      ctx.globalAlpha = 0.5;
-      for (let n of previewLaneNotes) {
-        const x = ((n.bar - startBar) + n.relativeTime) * barWidth;
-        const y = ROW_HEIGHT + n.row * ROW_HEIGHT;
-        ctx.fillStyle = ROW_COLORS[n.row];
-        ctx.fillRect(x + 1, y + 1, cellWidth - 2, ROW_HEIGHT - 2);
-        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1; ctx.strokeRect(x, y, cellWidth, ROW_HEIGHT);
-      }
-      ctx.globalAlpha = 1.0;
-    }
-
-    // --- ドラッグ選択領域 ---
-    if (activeLaneIndex === laneIndex && dragStart && dragCurrent) {
-      const rx = Math.min(dragStart.x, dragCurrent.x); const ry = Math.min(dragStart.y, dragCurrent.y);
-      const rw = Math.abs(dragStart.x - dragCurrent.x); const rh = Math.abs(dragStart.y - dragCurrent.y);
-      ctx.fillStyle = 'rgba(0, 122, 204, 0.3)'; ctx.fillRect(rx, ry, rw, rh);
-      ctx.strokeStyle = '#007acc'; ctx.lineWidth = 1; ctx.strokeRect(rx, ry, rw, rh);
-    }
-
-    // 再生カーソル
-    if (playheadBar >= startBar && playheadBar < endBar) {
-      const playX = (playheadBar - startBar) * barWidth;
-      ctx.strokeStyle = '#f44336'; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.moveTo(playX, 0); ctx.lineTo(playX, h); ctx.stroke();
-    }
-  }
-
-  function renderAllLanes(playheadBar = -1) {
-    for (let i = 0; i < TOTAL_LANES; i++) drawLane(i, playheadBar);
-  }
-
-  function getCanvasCoords(e, canvas) {
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: (e.clientX - rect.left) * (canvas.width / rect.width),
-      y: (e.clientY - rect.top) * (canvas.height / rect.height)
-    };
-  }
-
-  function onPointerDown(e, laneIndex, canvas) {
-    initAudio(); closeContextMenu();
-    const { x, y } = getCanvasCoords(e, canvas);
-    if (y < ROW_HEIGHT) return;
-
-    activeLaneIndex = laneIndex;
-    dragStart = { x, y }; dragCurrent = { x, y };
-
-    const barWidth = canvas.width / BARS_PER_LANE;
-    const targetRow = Math.floor((y - ROW_HEIGHT) / ROW_HEIGHT);
-    const targetBar = laneIndex * BARS_PER_LANE + Math.floor(x / barWidth);
-    const relativeX = (x % barWidth) / barWidth;
-    const snappedTime = Math.floor(relativeX * gridMode) / gridMode;
-
-    if (isExpireSelectMode || isGenTimeSelectMode) return;
-
-    if (editMode === 'note') {
-      const sameGroup = notes.filter(n => n.bar === targetBar && Math.abs(n.relativeTime - snappedTime) < 0.0001 && n.row === targetRow);
-      targetExistingItem = sameGroup[0] || null;
-    } else {
-      targetExistingItem = lines.find(l => l.bar === targetBar && Math.abs(l.relativeTime - snappedTime) < 0.0001 && l.row === targetRow);
-    }
-
-    isLongTap = false;
-    clearTimeout(tapTimer);
-
-    if (targetExistingItem && !isPasteMode) {
-      const clientX = e.clientX;
-      const clientY = e.clientY;
-      tapTimer = setTimeout(() => {
-        isLongTap = true;
-        if (editMode === 'note') {
-          targetNote = targetExistingItem;
-          selectedNotes = [targetNote];
-          openNoteContextMenu(clientX, clientY);
-        } else {
-          targetLine = targetExistingItem;
-          selectedLines = [targetLine];
-          openLineContextMenu(clientX, clientY);
-        }
-        renderAllLanes();
-      }, 450);
-    }
-  }
-
-  function onPointerMove(e, laneIndex, canvas) {
-    if (!dragStart || activeLaneIndex !== laneIndex) return;
-    const { x, y } = getCanvasCoords(e, canvas);
-    dragCurrent = { x, y };
-
-    if (Math.hypot(x - dragStart.x, y - dragStart.y) > 5) clearTimeout(tapTimer);
-
-    if (!isPasteMode && !isExpireSelectMode && !isGenTimeSelectMode && Math.hypot(x - dragStart.x, y - dragStart.y) >= 5) {
-      const barWidth = canvas.width / BARS_PER_LANE;
-      const startBar = laneIndex * BARS_PER_LANE;
-      const rx = Math.min(dragStart.x, dragCurrent.x); const ry = Math.min(dragStart.y, dragCurrent.y);
-      const rw = Math.abs(dragStart.x - dragCurrent.x); const rh = Math.abs(dragStart.y - dragCurrent.y);
-
-      if (editMode === 'note') {
-        selectedNotes = notes.filter(n => {
-          if (n.bar < startBar || n.bar >= startBar + BARS_PER_LANE) return false;
-          const nx = ((n.bar - startBar) + n.relativeTime) * barWidth;
-          const ny = ROW_HEIGHT + n.row * ROW_HEIGHT;
-          return (nx + barWidth/gridMode > rx && nx < rx + rw && ny + ROW_HEIGHT > ry && ny < ry + rh);
-        });
-      } else {
-        selectedLines = lines.filter(l => {
-          if (l.bar < startBar || l.bar >= startBar + BARS_PER_LANE) return false;
-          const lx = ((l.bar - startBar) + l.relativeTime) * barWidth;
-          const ly = ROW_HEIGHT + l.row * ROW_HEIGHT;
-          return (lx + barWidth/gridMode > rx && lx < rx + rw && ly + ROW_HEIGHT > ry && ly < ry + rh);
-        });
-      }
-    }
-    drawLane(laneIndex);
-  }
-
-  function onPointerUp(e, laneIndex, canvas) {
-    clearTimeout(tapTimer);
-    if (!dragStart) return;
-
-    const { x, y } = getCanvasCoords(e, canvas);
-    const dist = Math.hypot(x - dragStart.x, y - dragStart.y);
-
-    if (isExpireSelectMode) {
-      handleExpireSelectTap(laneIndex, x, e.clientX, e.clientY);
-    } else if (isGenTimeSelectMode) {
-      handleGenTimeSelectTap(laneIndex, x, e.clientX, e.clientY);
-    } else if (isPasteMode) {
-      updatePastePreview(laneIndex, x, y, e.clientX, e.clientY);
-    } else if (dist < 8) {
-      if (!isLongTap) {
-        if (targetExistingItem) {
-          if (editMode === 'note') {
-            window.saveHistory();
-            notes = notes.filter(n => n !== targetExistingItem);
-            selectedNotes = []; targetNote = null;
-          } else {
-            if (targetExistingItem.position) {
-              if (confirm('配置設定済の判定ラインを削除してもよろしいですか？')) {
-                window.saveHistory();
-                lines = lines.filter(l => l !== targetExistingItem);
-                selectedLines = []; targetLine = null;
-              }
-            } else {
-              window.saveHistory();
-              lines = lines.filter(l => l !== targetExistingItem);
-              selectedLines = []; targetLine = null;
+    // --- 定数・ステート定義 ---
+    const GRID_ROWS = 12;
+    const GRID_COLS = 8;
+    const CELL_SIZE = 40; // 1グリッドあたりのピクセルサイズ目安
+
+    // エディタモード: 'notes' | 'judge' | 'play'
+    let currentMode = 'notes';
+
+    // 盤面データ (x, y キーで格納)
+    // ノーツ: { id, x, y, trajectory, size }
+    // 判定ライン: { id, x, y, type }
+    const notesData = new Map();
+    const judgeLinesData = new Map();
+
+    // 選択状態
+    let selectedNoteKeys = new Set();
+    let selectedJudgeKeys = new Set();
+
+    // タッチ / ドラッグ操作追跡用
+    let isInteracting = false;
+    let startX = 0;
+    let startY = 0;
+    let currentX = 0;
+    let currentY = 0;
+    let startCellX = -1;
+    let startCellY = -1;
+
+    let longPressTimer = null;
+    let isRangeSelecting = false;
+    let hasTriggeredLongPress = false;
+
+    // DOM参照
+    const gridContainer = document.getElementById('grid-container');
+    const selectionBox = document.getElementById('selection-box');
+    const notesPanel = document.getElementById('notes-settings-panel');
+    const judgePanel = document.getElementById('judge-settings-panel');
+    const statusDisplay = document.getElementById('status-display');
+
+    // --- グリッド初期化 ---
+    function initGrid() {
+        gridContainer.style.gridTemplateColumns = `repeat(${GRID_COLS}, ${CELL_SIZE}px)`;
+        gridContainer.style.gridTemplateRows = `repeat(${GRID_ROWS}, ${CELL_SIZE}px)`;
+        gridContainer.innerHTML = '';
+
+        for (let y = 0; y < GRID_ROWS; y++) {
+            for (let x = 0; x < GRID_COLS; x++) {
+                const cell = document.createElement('div');
+                cell.className = 'grid-cell';
+                cell.dataset.x = x;
+                cell.dataset.y = y;
+                cell.style.width = `${CELL_SIZE}px`;
+                cell.style.height = `${CELL_SIZE}px`;
+                gridContainer.appendChild(cell);
             }
-          }
-        } else {
-          handleSingleTap(laneIndex, x, y);
         }
-      }
-    } else {
-      if (editMode === 'note' && selectedNotes.length > 0) {
-        targetNote = selectedNotes[0];
-        openNoteContextMenu(e.clientX, e.clientY);
-      } else if (editMode === 'line' && selectedLines.length > 0) {
-        targetLine = selectedLines[0];
-        openLineContextMenu(e.clientX, e.clientY);
-      }
     }
 
-    dragStart = null; dragCurrent = null; activeLaneIndex = -1;
-    renderAllLanes();
-  }
+    function getKey(x, y) { return `${x},${y}`; }
 
-  function handleSingleTap(laneIndex, x, y) {
-    const barWidth = laneCanvases[laneIndex].width / BARS_PER_LANE;
-    const targetRow = Math.floor((y - ROW_HEIGHT) / ROW_HEIGHT);
-    if (targetRow < 0 || targetRow >= 6) return;
+    // 再描画処理
+    function renderGrid() {
+        const cells = gridContainer.children;
+        for (let cell of cells) {
+            const x = parseInt(cell.dataset.x);
+            const y = parseInt(cell.dataset.y);
+            const key = getKey(x, y);
 
-    const targetBar = laneIndex * BARS_PER_LANE + Math.floor(x / barWidth);
-    const relativeX = (x % barWidth) / barWidth;
-    const snappedTime = Math.floor(relativeX * gridMode) / gridMode;
+            // クラスのリセット
+            cell.className = 'grid-cell';
 
-    window.saveHistory();
-    if (editMode === 'note') {
-      const sameGroup = notes.filter(n => n.bar === targetBar && Math.abs(n.relativeTime - snappedTime) < 0.0001 && n.shape === SHAPES[targetRow]);
-      if (sameGroup.length >= 2) {
-        showToast('⚠️同一タイミングに同じ形状のノーツは2つまでしか配置できません');
-        return;
-      }
-      const newNote = {
-        bar: targetBar, relativeTime: snappedTime, row: targetRow, shape: SHAPES[targetRow],
-        lineId: null, genTime: null, path: null, scalePointers: null, rotation: null
-      };
-      notes.push(newNote);
-      selectedNotes = [newNote]; targetNote = newNote;
-    } else {
-      const newLine = {
-        id: `PL_${String(lineIdCounter++).padStart(3, '0')}`,
-        bar: targetBar, relativeTime: snappedTime, row: targetRow,
-        shape: SHAPES[targetRow], position: null, expire: null
-      };
-      lines.push(newLine);
-      selectedLines = [newLine]; targetLine = newLine;
-    }
-    playKickSound();
-  }
+            // ノーツ表示
+            if (notesData.has(key)) {
+                cell.classList.add('has-note');
+            }
 
-  // --- コピー＆ペースト ---
-  function updatePastePreview(laneIndex, x, y, clientX, clientY) {
-    if (clipboard.length === 0) return;
-    const barWidth = laneCanvases[laneIndex].width / BARS_PER_LANE;
-    const targetRow = Math.floor((y - ROW_HEIGHT) / ROW_HEIGHT);
-    const targetBar = laneIndex * BARS_PER_LANE + Math.floor(x / barWidth);
-    const relativeX = (x % barWidth) / barWidth;
-    const snappedTime = Math.floor(relativeX * gridMode) / gridMode;
+            // 判定ライン表示
+            if (judgeLinesData.has(key)) {
+                cell.classList.add('has-judge-line');
+            }
 
-    const minBar = Math.min(...clipboard.map(n => n.bar));
-    const minTime = Math.min(...clipboard.filter(n => n.bar === minBar).map(n => n.relativeTime));
-    const minRow = clipboard[0].row;
+            // ③ 範囲選択中の動的な点滅スタイル適用
+            if (isRangeSelecting && isCellInSelectionBox(x, y)) {
+                if (currentMode === 'notes' && notesData.has(key)) {
+                    cell.classList.add('selecting-blink');
+                }
+            }
 
-    previewNotes = clipboard.map(n => {
-      let calcTime = snappedTime + (n.relativeTime - minTime);
-      let calcBar = targetBar + (n.bar - minBar) + Math.floor(calcTime);
-      calcTime = (calcTime % 1 + 1) % 1;
-      return {
-        ...n,
-        bar: calcBar, relativeTime: calcTime, row: Math.min(5, Math.max(0, targetRow + (n.row - minRow)))
-      };
-    });
-
-    const popover = document.getElementById('paste-popover');
-    popover.style.left = `${Math.min(clientX + 10, window.innerWidth - 180)}px`;
-    popover.style.top = `${Math.min(clientY + 10, window.innerHeight - 60)}px`;
-    popover.style.display = 'flex';
-    renderAllLanes();
-  }
-
-  window.copySelected = function() {
-    if (selectedNotes.length === 0) return;
-    clipboard = JSON.parse(JSON.stringify(selectedNotes));
-    isPasteMode = true;
-    closeContextMenu();
-    showToast('コピーしました。貼り付けたいグリッドをタップしてください');
-  };
-
-  window.confirmPaste = function() {
-    if (previewNotes.length > 0) {
-      window.saveHistory();
-      notes.push(...JSON.parse(JSON.stringify(previewNotes)));
-      playKickSound();
-    }
-    cancelPaste();
-  };
-
-  window.cancelPaste = function() {
-    isPasteMode = false; previewNotes = [];
-    document.getElementById('paste-popover').style.display = 'none';
-    renderAllLanes();
-  };
-
-  window.deleteSelectedNotes = function() {
-    if (selectedNotes.length === 0) return;
-    window.saveHistory();
-    const toDelete = new Set(selectedNotes);
-    notes = notes.filter(n => !toDelete.has(n));
-    selectedNotes = [];
-    targetNote = null;
-    closeContextMenu();
-    renderAllLanes();
-    showToast('選択したノーツを削除しました');
-  };
-
-  // --- ノーツ設定メニュー ---
-  function openNoteContextMenu(x, y) {
-    if (!targetNote && selectedNotes.length === 0) return;
-    const menu = document.getElementById('note-context-menu');
-    const isSingle = selectedNotes.length === 1;
-    const shapes = Array.from(new Set(selectedNotes.map(n => n.shape)));
-    const isSameShapeMulti = !isSingle && shapes.length === 1;
-
-    document.getElementById('note-menu-title').innerText = isSingle ? 'ノーツ設定' : `${selectedNotes.length}個 選択中`;
-
-    // ID紐付けボックス表示コントロール（厳格条件）
-    const idWrapper = document.getElementById('id-box-wrapper');
-    const txtId = document.getElementById('txt-line-id');
-
-    let showIdBox = false;
-
-    if (isSingle || isSameShapeMulti) {
-      const ids = selectedNotes.map(n => n.lineId);
-      const allSame = ids.every(id => id === ids[0]);
-      const commonId = ids[0];
-
-      if (allSame) {
-        if (!commonId || lines.some(l => l.id === commonId)) {
-          showIdBox = true;
-          txtId.value = commonId || '';
-          updateIdStatusIcon();
+            // 確定選択状態
+            if (currentMode === 'notes' && selectedNoteKeys.has(key)) {
+                cell.classList.add('selected');
+            } else if (currentMode === 'judge' && selectedJudgeKeys.has(key)) {
+                cell.classList.add('selected');
+            }
         }
-      }
     }
 
-    idWrapper.style.display = showIdBox ? 'flex' : 'none';
+    // --- 操作ロジック ---
 
-    // ボタン表示制御
-    document.getElementById('btn-note-gen').innerText = isSingle ? '発生タイミング設定' : '発生タイミング一括設定';
-    document.getElementById('btn-note-path').innerText = isSingle ? '軌道設定' : 'ノーツ軌道一括設定';
-    document.getElementById('btn-note-scale').innerText = isSingle ? '大きさ変化設定' : '大きさ一括設定';
-    document.getElementById('btn-note-rotate').innerText = isSingle ? '回転設定' : '回転一括設定';
-    document.getElementById('btn-note-add').style.display = isSingle ? 'block' : 'none';
+    function getCellCoordsFromPoint(px, py) {
+        const rect = gridContainer.getBoundingClientRect();
+        const relX = px - rect.left;
+        const relY = py - rect.top;
 
-    if (isSingle) {
-      const sameGroup = notes.filter(n => n.bar === targetNote.bar && Math.abs(n.relativeTime - targetNote.relativeTime) < 0.0001 && n.shape === targetNote.shape);
-      document.getElementById('btn-note-add').innerText = sameGroup.length > 1 ? 'ノーツ切り替え' : 'ノーツ追加';
-    }
-
-    document.getElementById('icon-note-gen').innerText = targetNote?.genTime ? '✅' : '';
-    document.getElementById('icon-note-path').innerText = targetNote?.path ? '✅' : '';
-    document.getElementById('icon-note-scale').innerText = targetNote?.scalePointers ? '🔧' : '';
-    document.getElementById('icon-note-rotate').innerText = (targetNote?.rotation && targetNote.rotation.deg !== 0) ? '🔧' : '';
-
-    menu.style.left = `${Math.min(x, window.innerWidth - 180)}px`;
-    menu.style.top = `${Math.min(y, window.innerHeight - 280)}px`;
-    menu.style.display = 'block';
-  }
-
-  window.focusIdInput = function() {
-    document.getElementById('txt-line-id').focus();
-  };
-
-  function updateIdStatusIcon() {
-    const val = document.getElementById('txt-line-id').value.trim();
-    const iconStatus = document.getElementById('id-status-icon');
-    if (!val) { iconStatus.innerText = ''; return; }
-
-    const matchedLine = lines.find(l => l.id === val);
-    if (!matchedLine) {
-      iconStatus.innerText = '❌';
-    } else {
-      const currentShape = (selectedNotes[0] || targetNote)?.shape;
-      if (matchedLine.shape !== currentShape) {
-        iconStatus.innerText = '⚠️形状不一致';
-      } else {
-        iconStatus.innerText = '✅';
-      }
-    }
-  }
-
-  window.onIdInputBlur = function() {
-    const val = document.getElementById('txt-line-id').value.trim();
-    if (!val) {
-      selectedNotes.forEach(n => n.lineId = null);
-      updateIdStatusIcon();
-      return;
-    }
-
-    const matchedLine = lines.find(l => l.id === val);
-    const currentShape = (selectedNotes[0] || targetNote)?.shape;
-
-    if (!matchedLine) {
-      showToast('⚠️存在する判定ラインIDを入力してください');
-      document.getElementById('txt-line-id').value = '';
-      selectedNotes.forEach(n => n.lineId = null);
-    } else if (matchedLine.shape !== currentShape) {
-      showToast('⚠️同じ形状の判定ラインIDしか紐付けできません');
-      document.getElementById('txt-line-id').value = '';
-      selectedNotes.forEach(n => n.lineId = null);
-    } else {
-      window.saveHistory();
-      selectedNotes.forEach(n => n.lineId = val);
-      showToast(`ID (${val}) を紐付けました`);
-    }
-    updateIdStatusIcon();
-  };
-
-  window.toggleAddSwitchNote = function() {
-    if (!targetNote) return;
-    const sameGroup = notes.filter(n => n.bar === targetNote.bar && Math.abs(n.relativeTime - targetNote.relativeTime) < 0.0001 && n.shape === targetNote.shape);
-    if (sameGroup.length === 1) {
-      window.saveHistory();
-      const newNote = {
-        bar: targetNote.bar, relativeTime: targetNote.relativeTime, row: targetNote.row, shape: targetNote.shape,
-        lineId: null, genTime: null, path: null, scalePointers: null, rotation: null
-      };
-      notes.push(newNote);
-      targetNote = newNote; selectedNotes = [newNote];
-      showToast('2つ目のノーツを追加しました');
-    } else {
-      const idx = sameGroup.indexOf(targetNote);
-      targetNote = sameGroup[(idx + 1) % sameGroup.length];
-      selectedNotes = [targetNote];
-      showToast('選択ノーツを切り替えました');
-    }
-    openNoteContextMenu(window.innerWidth / 2, window.innerHeight / 2);
-    renderAllLanes();
-  };
-
-  // --- 発生タイミング設定モード ---
-  window.startGenTimeSelectMode = function() {
-    closeContextMenu(); isGenTimeSelectMode = true;
-    pendingGenTiming = targetNote.genTime ? JSON.parse(JSON.stringify(targetNote.genTime)) : { bar: targetNote.bar, relativeTime: targetNote.relativeTime };
-    showToast('発生させたいタイミングのグリッドをタップしてください');
-    renderAllLanes();
-  };
-
-  function handleGenTimeSelectTap(laneIndex, x, clientX, clientY) {
-    const barWidth = laneCanvases[laneIndex].width / BARS_PER_LANE;
-    const targetBar = laneIndex * BARS_PER_LANE + Math.floor(x / barWidth);
-    const relativeX = (x % barWidth) / barWidth;
-    const snappedTime = Math.floor(relativeX * gridMode) / gridMode;
-
-    const earliestNoteBar = Math.min(...selectedNotes.map(n => n.bar + n.relativeTime));
-    const selectedBarTime = targetBar + snappedTime;
-
-    if (selectedBarTime > earliestNoteBar) {
-      showToast('⚠️再生タイミングより未来の時間には設定できません');
-      return;
-    }
-
-    pendingGenTiming = { bar: targetBar, relativeTime: snappedTime };
-    const popover = document.getElementById('gen-time-popover');
-    popover.style.left = `${Math.min(clientX + 10, window.innerWidth - 180)}px`;
-    popover.style.top = `${Math.min(clientY + 10, window.innerHeight - 60)}px`;
-    popover.style.display = 'flex';
-    renderAllLanes();
-  }
-
-  window.confirmGenTiming = function() {
-    if (pendingGenTiming) {
-      window.saveHistory();
-      selectedNotes.forEach(n => n.genTime = JSON.parse(JSON.stringify(pendingGenTiming)));
-      showToast('発生タイミングを設定しました');
-    }
-    cancelGenTiming();
-  };
-
-  window.cancelGenTiming = function() {
-    isGenTimeSelectMode = false; pendingGenTiming = null;
-    document.getElementById('gen-time-popover').style.display = 'none';
-    renderAllLanes();
-  };
-
-  // --- 判定ライン設定メニュー ---
-  function openLineContextMenu(x, y) {
-    if (!targetLine) return;
-    const menu = document.getElementById('line-context-menu');
-    const isMulti = selectedLines.length > 1;
-
-    document.getElementById('line-menu-title').innerText = isMulti ? `${selectedLines.length}個 選択中` : `判定ライン設定`;
-    document.getElementById('btn-line-id').style.display = isMulti ? 'none' : 'block';
-    document.getElementById('btn-line-pos').style.display = isMulti ? 'none' : 'block';
-    document.getElementById('btn-line-add').style.display = isMulti ? 'none' : 'block';
-
-    if (!isMulti) {
-      document.getElementById('lbl-line-id').innerText = targetLine.id;
-      document.getElementById('lbl-line-status').style.display = targetLine.position ? 'none' : 'inline';
-    }
-
-    menu.style.left = `${Math.min(x, window.innerWidth - 160)}px`;
-    menu.style.top = `${Math.min(y, window.innerHeight - 180)}px`;
-    menu.style.display = 'block';
-  }
-
-  window.closeContextMenu = function() {
-    document.getElementById('note-context-menu').style.display = 'none';
-    document.getElementById('line-context-menu').style.display = 'none';
-  };
-
-  window.cycleLineID = function() {
-    if (!targetLine) return;
-    const sameGroup = lines.filter(l => l.bar === targetLine.bar && Math.abs(l.relativeTime - targetLine.relativeTime) < 0.0001 && l.shape === targetLine.shape);
-    if (sameGroup.length <= 1) return;
-    const idx = sameGroup.indexOf(targetLine);
-    targetLine = sameGroup[(idx + 1) % sameGroup.length];
-    document.getElementById('lbl-line-id').innerText = targetLine.id;
-    document.getElementById('lbl-line-status').style.display = targetLine.position ? 'none' : 'inline';
-    renderAllLanes();
-  };
-
-  window.addNewLineSameTiming = function() {
-    if (!targetLine) return;
-    window.saveHistory();
-    const newLine = {
-      id: `PL_${String(lineIdCounter++).padStart(3, '0')}`,
-      bar: targetLine.bar, relativeTime: targetLine.relativeTime, row: targetLine.row,
-      shape: targetLine.shape,
-      position: targetLine.position ? JSON.parse(JSON.stringify(targetLine.position)) : null,
-      expire: targetLine.expire ? JSON.parse(JSON.stringify(targetLine.expire)) : null
-    };
-    lines.push(newLine);
-    targetLine = newLine; selectedLines = [newLine];
-    showToast(`判定ライン (${newLine.id}) を追加しました`);
-  };
-
-  window.deleteSelectedLine = function() {
-    window.saveHistory();
-    lines = lines.filter(l => !selectedLines.includes(l));
-    targetLine = null; selectedLines = [];
-    closeContextMenu(); renderAllLanes();
-  };
-
-  // --- 消失タイミング設定モード ---
-  window.startExpireSelectMode = function() {
-    closeContextMenu(); isExpireSelectMode = true;
-    pendingExpireTiming = targetLine.expire ? JSON.parse(JSON.stringify(targetLine.expire)) : { bar: targetLine.bar, relativeTime: targetLine.relativeTime };
-    showToast('消失させたいタイミングのグリッドをタップしてください');
-    renderAllLanes();
-  };
-
-  function handleExpireSelectTap(laneIndex, x, clientX, clientY) {
-    const barWidth = laneCanvases[laneIndex].width / BARS_PER_LANE;
-    const targetBar = laneIndex * BARS_PER_LANE + Math.floor(x / barWidth);
-    const relativeX = (x % barWidth) / barWidth;
-    const snappedTime = Math.floor(relativeX * gridMode) / gridMode;
-
-    if (targetBar < targetLine.bar || (targetBar === targetLine.bar && snappedTime < targetLine.relativeTime)) {
-      showToast('⚠️発生タイミングより過去には設定できません');
-      return;
-    }
-
-    pendingExpireTiming = { bar: targetBar, relativeTime: snappedTime };
-    const popover = document.getElementById('expire-confirm-popover');
-    popover.style.left = `${Math.min(clientX + 10, window.innerWidth - 180)}px`;
-    popover.style.top = `${Math.min(clientY + 10, window.innerHeight - 60)}px`;
-    popover.style.display = 'flex';
-    renderAllLanes();
-  }
-
-  window.confirmExpireTiming = function() {
-    if (targetLine && pendingExpireTiming) {
-      window.saveHistory();
-      if (selectedLines.length > 1) {
-        selectedLines.forEach(l => l.expire = JSON.parse(JSON.stringify(pendingExpireTiming)));
-      } else {
-        targetLine.expire = pendingExpireTiming;
-      }
-      showToast('消失タイミングを設定しました');
-    }
-    cancelExpireTiming();
-  };
-
-  window.cancelExpireTiming = function() {
-    isExpireSelectMode = false; pendingExpireTiming = null;
-    document.getElementById('expire-confirm-popover').style.display = 'none';
-    renderAllLanes();
-  };
-
-  // --- 位置・大きさ 編集スクリーン (16:9) ---
-  const screenModal = document.getElementById('position-modal');
-  const screenCanvas = document.getElementById('screen-canvas');
-  const screenCtx = screenCanvas.getContext('2d');
-  let tempPos = { x: 480, y: 270, scale: 1.0, rotation: 0 };
-  let screenDragTarget = null;
-  let screenDragStart = null;
-
-  window.openPositionModal = function() {
-    if (!targetLine) return;
-    closeContextMenu();
-    tempPos = targetLine.position ? JSON.parse(JSON.stringify(targetLine.position)) : { x: 480, y: 270, scale: 1.0, rotation: 0 };
-    screenModal.style.display = 'flex';
-    drawScreenCanvas();
-  };
-
-  function drawScreenCanvas() {
-    const w = screenCanvas.width; const h = screenCanvas.height;
-    screenCtx.clearRect(0, 0, w, h);
-    
-    document.getElementById('lbl-pos-scale').innerText = Math.round(tempPos.scale * 100);
-
-    screenCtx.strokeStyle = '#222'; screenCtx.lineWidth = 1;
-    for (let x = 0; x < w; x += 40) { screenCtx.beginPath(); screenCtx.moveTo(x, 0); screenCtx.lineTo(x, h); screenCtx.stroke(); }
-    for (let y = 0; y < h; y += 40) { screenCtx.beginPath(); screenCtx.moveTo(0, y); screenCtx.lineTo(w, y); screenCtx.stroke(); }
-
-    screenCtx.save();
-    screenCtx.translate(tempPos.x, tempPos.y);
-    screenCtx.rotate(tempPos.rotation * Math.PI / 180);
-    screenCtx.scale(tempPos.scale, tempPos.scale);
-
-    screenCtx.fillStyle = '#009688'; screenCtx.strokeStyle = '#00ffff'; screenCtx.lineWidth = 3;
-    const baseSize = 60;
-    screenCtx.beginPath();
-    if (targetLine.shape === 'circle') {
-      screenCtx.arc(0, 0, baseSize / 2, 0, Math.PI * 2);
-    } else if (targetLine.shape === 'square') {
-      screenCtx.rect(-baseSize / 2, -baseSize / 2, baseSize, baseSize);
-    } else if (targetLine.shape === 'triangle') {
-      const hTri = baseSize * (Math.sqrt(3) / 2);
-      screenCtx.moveTo(0, -hTri * 2 / 3);
-      screenCtx.lineTo(baseSize / 2, hTri / 3);
-      screenCtx.lineTo(-baseSize / 2, hTri / 3);
-      screenCtx.closePath();
-    } else if (targetLine.shape === 'star') {
-      for (let i = 0; i < 5; i++) {
-        screenCtx.lineTo(Math.cos((18 + i * 72) * Math.PI / 180) * baseSize / 2, -Math.sin((18 + i * 72) * Math.PI / 180) * baseSize / 2);
-        screenCtx.lineTo(Math.cos((54 + i * 72) * Math.PI / 180) * baseSize / 4, -Math.sin((54 + i * 72) * Math.PI / 180) * baseSize / 4);
-      }
-      screenCtx.closePath();
-    } else {
-      screenCtx.rect(-baseSize / 2, -baseSize / 3, baseSize, baseSize * 0.66);
-    }
-    screenCtx.fill(); screenCtx.stroke();
-
-    screenCtx.strokeStyle = '#2196f3'; screenCtx.lineWidth = 1.5;
-    screenCtx.strokeRect(-baseSize/2 - 10, -baseSize/2 - 10, baseSize + 20, baseSize + 20);
-
-    screenCtx.fillStyle = '#2196f3'; screenCtx.fillRect(baseSize/2 + 5, baseSize/2 + 5, 10, 10);
-    screenCtx.fillStyle = '#4caf50';
-    screenCtx.beginPath(); screenCtx.arc(0, -baseSize/2 - 25, 6, 0, Math.PI * 2); screenCtx.fill();
-    screenCtx.beginPath(); screenCtx.moveTo(0, -baseSize/2 - 10); screenCtx.lineTo(0, -baseSize/2 - 19); screenCtx.stroke();
-
-    screenCtx.restore();
-  }
-
-  screenCanvas.addEventListener('pointerdown', (e) => {
-    const rect = screenCanvas.getBoundingClientRect();
-    const mx = (e.clientX - rect.left) * (screenCanvas.width / rect.width);
-    const my = (e.clientY - rect.top) * (screenCanvas.height / rect.height);
-
-    const dist = Math.hypot(mx - tempPos.x, my - tempPos.y);
-    if (dist < 40 * tempPos.scale) screenDragTarget = 'move';
-    else if (dist < 80 * tempPos.scale) screenDragTarget = 'scale';
-    else screenDragTarget = 'rotate';
-
-    screenDragStart = { x: mx, y: my, pos: JSON.parse(JSON.stringify(tempPos)) };
-  });
-
-  screenCanvas.addEventListener('pointermove', (e) => {
-    if (!screenDragTarget || !screenDragStart) return;
-    const rect = screenCanvas.getBoundingClientRect();
-    const mx = (e.clientX - rect.left) * (screenCanvas.width / rect.width);
-    const my = (e.clientY - rect.top) * (screenCanvas.height / rect.height);
-
-    if (screenDragTarget === 'move') {
-      tempPos.x = screenDragStart.pos.x + (mx - screenDragStart.x);
-      tempPos.y = screenDragStart.pos.y + (my - screenDragStart.y);
-    } else if (screenDragTarget === 'scale') {
-      const origDist = Math.hypot(screenDragStart.x - screenDragStart.pos.x, screenDragStart.y - screenDragStart.pos.y);
-      const newDist = Math.hypot(mx - screenDragStart.pos.x, my - screenDragStart.pos.y);
-      // 倍率可変範囲: 5% 〜 1000%
-      tempPos.scale = Math.max(0.05, Math.min(10.0, screenDragStart.pos.scale * (newDist / (origDist || 1))));
-    } else if (screenDragTarget === 'rotate') {
-      const rad = Math.atan2(my - tempPos.y, mx - tempPos.x);
-      tempPos.rotation = Math.round(rad * (180 / Math.PI) + 90);
-    }
-    drawScreenCanvas();
-  });
-
-  screenCanvas.addEventListener('pointerup', () => { screenDragTarget = null; screenDragStart = null; });
-
-  window.savePositionModal = function() {
-    if (targetLine) {
-      window.saveHistory();
-      targetLine.position = JSON.parse(JSON.stringify(tempPos));
-      showToast(`配置を確定しました (${targetLine.id})`);
-    }
-    closePositionModal(); renderAllLanes();
-  };
-
-  window.closePositionModal = function() { screenModal.style.display = 'none'; };
-
-  // --- ノーツ 軌道設定 スクリーン ---
-  const pathModal = document.getElementById('path-modal');
-  const pathCanvas = document.getElementById('path-canvas');
-  const pathCtx = pathCanvas.getContext('2d');
-
-  let pathZoomLevels = [100, 200, 150];
-  let pathZoomIdx = 0;
-  let tempPathPointers = [];
-  let pathDragIdx = -1;
-
-  window.openPathModal = function() {
-    closeContextMenu();
-    if (selectedNotes.length > 1 && new Set(selectedNotes.map(n => n.shape)).size > 1) {
-      selectedNotes.forEach(n => n.lineId = null);
-      showToast('複数形状の範囲選択のため判定ラインID紐付けを解除しました');
-    }
-
-    tempPathPointers = (targetNote && targetNote.path) ? JSON.parse(JSON.stringify(targetNote.path)) : [];
-    pathZoomIdx = 0;
-    pathModal.style.display = 'flex';
-    checkBeatPointerButtonCondition();
-    drawPathCanvas();
-  };
-
-  window.cyclePathZoom = function() {
-    pathZoomIdx = (pathZoomIdx + 1) % pathZoomLevels.length;
-    const zoom = pathZoomLevels[pathZoomIdx];
-    document.getElementById('lbl-path-zoom').innerText = zoom;
-    drawPathCanvas();
-  };
-
-  function checkBeatPointerButtonCondition() {
-    const btnBeat = document.getElementById('btn-beat-pointer');
-    if (!targetNote || selectedNotes.length > 1) { btnBeat.style.display = 'none'; return; }
-    if (!targetNote.genTime) { btnBeat.style.display = 'none'; return; }
-
-    const genBarTime = targetNote.genTime.bar + targetNote.genTime.relativeTime;
-    const hitBarTime = targetNote.bar + targetNote.relativeTime;
-    const diffBarTime = hitBarTime - genBarTime;
-
-    if (diffBarTime >= 0.25 && tempPathPointers.length >= 2) {
-      btnBeat.style.display = 'inline-block';
-    } else {
-      btnBeat.style.display = 'none';
-    }
-  }
-
-  function drawPathCanvas() {
-    const w = pathCanvas.width; const h = pathCanvas.height;
-    pathCtx.clearRect(0, 0, w, h);
-
-    const zoom = pathZoomLevels[pathZoomIdx] / 100;
-    pathCtx.save();
-    pathCtx.translate(w / 2, h / 2);
-    pathCtx.scale(1 / zoom, 1 / zoom);
-    pathCtx.translate(-w / 2, -h / 2);
-
-    // 100%時の白い点線枠を描画
-    if (pathZoomLevels[pathZoomIdx] === 100) {
-      pathCtx.strokeStyle = '#ffffff';
-      pathCtx.lineWidth = 2;
-      pathCtx.setLineDash([6, 4]);
-      pathCtx.strokeRect(0, 0, w, h);
-      pathCtx.setLineDash([]);
-    }
-
-    // グリッド背景
-    pathCtx.strokeStyle = '#222'; pathCtx.lineWidth = 1;
-    for (let x = -w; x < w * 2; x += 40) { pathCtx.beginPath(); pathCtx.moveTo(x, -h); pathCtx.lineTo(x, h * 2); pathCtx.stroke(); }
-    for (let y = -h; y < h * 2; y += 40) { pathCtx.beginPath(); pathCtx.moveTo(-w, y); pathCtx.lineTo(w * 2, y); pathCtx.stroke(); }
-
-    // 同時間の配置済み判定ラインを描画
-    if (targetNote) {
-      const activeLines = lines.filter(l => l.bar === targetNote.bar && Math.abs(l.relativeTime - targetNote.relativeTime) < 0.0001 && l.position);
-      for (let l of activeLines) {
-        pathCtx.save();
-        pathCtx.translate(l.position.x, l.position.y);
-        pathCtx.rotate(l.position.rotation * Math.PI / 180);
-        pathCtx.scale(l.position.scale, l.position.scale);
-
-        if (targetNote.lineId === l.id) {
-          pathCtx.fillStyle = ROW_COLORS[targetNote.row];
-        } else {
-          pathCtx.fillStyle = 'rgba(0, 150, 136, 0.4)';
+        if (relX < 0 || relX >= rect.width || relY < 0 || relY >= rect.height) {
+            return null;
         }
-        pathCtx.fillRect(-30, -30, 60, 60);
 
-        pathCtx.fillStyle = '#fff'; pathCtx.font = '12px sans-serif'; pathCtx.textAlign = 'center';
-        pathCtx.fillText(l.id, 0, 5);
-        pathCtx.restore();
-      }
+        const x = Math.floor(relX / (CELL_SIZE + 2)); // gap 2pxを考慮
+        const y = Math.floor(relY / (CELL_SIZE + 2));
+        return {
+            x: Math.min(Math.max(x, 0), GRID_COLS - 1),
+            y: Math.min(Math.max(y, 0), GRID_ROWS - 1)
+        };
     }
 
-    // 軌道パス（青線）
-    let totalLength = 0;
-    if (tempPathPointers.length > 1) {
-      pathCtx.strokeStyle = '#2196f3'; pathCtx.lineWidth = 2; pathCtx.beginPath();
-      pathCtx.moveTo(tempPathPointers[0].x, tempPathPointers[0].y);
-      for (let i = 1; i < tempPathPointers.length; i++) {
-        pathCtx.lineTo(tempPathPointers[i].x, tempPathPointers[i].y);
-        totalLength += Math.hypot(tempPathPointers[i].x - tempPathPointers[i - 1].x, tempPathPointers[i].y - tempPathPointers[i - 1].y);
-      }
-      pathCtx.stroke();
-    }
-    document.getElementById('lbl-path-length').innerText = Math.round(totalLength);
+    function handleStart(px, py) {
+        isInteracting = true;
+        startX = px;
+        startY = py;
+        currentX = px;
+        currentY = py;
 
-    // ポインタを描画
-    tempPathPointers.forEach((p, idx) => {
-      pathCtx.fillStyle = (idx === 0) ? '#f44336' : '#ffffff';
-      pathCtx.beginPath(); pathCtx.arc(p.x, p.y, 6, 0, Math.PI * 2); pathCtx.fill();
-      pathCtx.strokeStyle = '#000'; pathCtx.lineWidth = 1; pathCtx.stroke();
-    });
+        const coords = getCellCoordsFromPoint(px, py);
+        if (!coords) return;
 
-    pathCtx.restore();
-  }
+        startCellX = coords.x;
+        startCellY = coords.y;
+        const key = getKey(startCellX, startCellY);
 
-  pathCanvas.addEventListener('pointerdown', (e) => {
-    const rect = pathCanvas.getBoundingClientRect();
-    const zoom = pathZoomLevels[pathZoomIdx] / 100;
-    const rawX = (e.clientX - rect.left) * (pathCanvas.width / rect.width);
-    const rawY = (e.clientY - rect.top) * (pathCanvas.height / rect.height);
-    
-    const cx = pathCanvas.width / 2; const cy = pathCanvas.height / 2;
-    const mx = cx + (rawX - cx) * zoom;
-    const my = cy + (rawY - cy) * zoom;
+        hasTriggeredLongPress = false;
+        isRangeSelecting = false;
 
-    // 既存ポインタのドラッグ判定
-    const clickedIdx = tempPathPointers.findIndex(p => Math.hypot(p.x - mx, p.y - my) < 14 * zoom);
-    if (clickedIdx >= 0) {
-      pathDragIdx = clickedIdx;
-      return;
+        // タイマーセット: 0.5秒間保持
+        clearTimeout(longPressTimer);
+        longPressTimer = setTimeout(() => {
+            if (!isInteracting) return;
+
+            // ①・② 0.5秒経過し、かつ範囲選択に移行していなければ「長押し」として判定
+            if (!isRangeSelecting) {
+                hasTriggeredLongPress = true;
+                executeLongPressAction(startCellX, startCellY);
+            }
+        }, 500);
     }
 
-    // パス線分へのヒット判定（頂点割込み判定）
-    let insertIdx = -1;
-    let insertPos = null;
-    const hitThreshold = 18 * zoom;
+    function handleMove(px, py) {
+        if (!isInteracting) return;
+        currentX = px;
+        currentY = py;
 
-    for (let i = 0; i < tempPathPointers.length - 1; i++) {
-      const p1 = tempPathPointers[i];
-      const p2 = tempPathPointers[i + 1];
-      const dx = p2.x - p1.x;
-      const dy = p2.y - p1.y;
-      const len = Math.hypot(dx, dy) || 1;
-      const t = Math.max(0, Math.min(1, ((mx - p1.x) * dx + (my - p1.y) * dy) / (len * len)));
-      const closestX = p1.x + t * dx;
-      const closestY = p1.y + t * dy;
-      const dist = Math.hypot(mx - closestX, my - closestY);
+        const deltaX = Math.abs(currentX - startX);
+        const deltaY = Math.abs(currentY - startY);
 
-      if (dist < hitThreshold) {
-        insertIdx = i + 1;
-        insertPos = { x: closestX, y: closestY };
-        break;
-      }
-    }
+        // ②「グリッドの辺2つ分」の距離を移動閾値とする (2 × CELL_SIZE)
+        const moveThreshold = CELL_SIZE * 2;
 
-    if (insertIdx >= 0 && insertPos) {
-      tempPathPointers.splice(insertIdx, 0, insertPos);
-      checkBeatPointerButtonCondition();
-      drawPathCanvas();
-      return;
-    }
-
-    // 判定ライン吸着
-    let hitX = mx; let hitY = my;
-    if (targetNote) {
-      const activeLines = lines.filter(l => l.bar === targetNote.bar && Math.abs(l.relativeTime - targetNote.relativeTime) < 0.0001 && l.position);
-      const snapLine = activeLines.find(l => Math.hypot(l.position.x - mx, l.position.y - my) < 40);
-      if (snapLine) {
-        hitX = snapLine.position.x; hitY = snapLine.position.y;
-        targetNote.lineId = snapLine.id;
-      }
-    }
-
-    tempPathPointers.push({ x: hitX, y: hitY });
-    checkBeatPointerButtonCondition();
-    drawPathCanvas();
-  });
-
-  pathCanvas.addEventListener('pointermove', (e) => {
-    if (pathDragIdx < 0) return;
-    const rect = pathCanvas.getBoundingClientRect();
-    const zoom = pathZoomLevels[pathZoomIdx] / 100;
-    const rawX = (e.clientX - rect.left) * (pathCanvas.width / rect.width);
-    const rawY = (e.clientY - rect.top) * (pathCanvas.height / rect.height);
-    const cx = pathCanvas.width / 2; const cy = pathCanvas.height / 2;
-    
-    tempPathPointers[pathDragIdx].x = cx + (rawX - cx) * zoom;
-    tempPathPointers[pathDragIdx].y = cy + (rawY - cy) * zoom;
-    drawPathCanvas();
-  });
-
-  pathCanvas.addEventListener('pointerup', () => { pathDragIdx = -1; });
-
-  window.autoGenerateBeatPointers = function() {
-    if (!targetNote || tempPathPointers.length < 2 || !targetNote.genTime) return;
-
-    window.saveHistory();
-    const genBarTime = targetNote.genTime.bar + targetNote.genTime.relativeTime;
-    const hitBarTime = targetNote.bar + targetNote.relativeTime;
-    const totalBeats = Math.round((hitBarTime - genBarTime) * 4);
-
-    if (totalBeats <= 0) return;
-
-    let totalLen = 0;
-    const lengths = [];
-    for (let i = 1; i < tempPathPointers.length; i++) {
-      const l = Math.hypot(tempPathPointers[i].x - tempPathPointers[i - 1].x, tempPathPointers[i].y - tempPathPointers[i - 1].y);
-      lengths.push(l);
-      totalLen += l;
-    }
-
-    const newPointers = [];
-    const stepLen = totalLen / totalBeats;
-
-    for (let b = 0; b <= totalBeats; b++) {
-      const targetDist = stepLen * b;
-      let accum = 0;
-      let pX = tempPathPointers[0].x;
-      let pY = tempPathPointers[0].y;
-
-      for (let i = 0; i < lengths.length; i++) {
-        if (accum + lengths[i] >= targetDist || i === lengths.length - 1) {
-          const ratio = (lengths[i] > 0) ? (targetDist - accum) / lengths[i] : 0;
-          const clampedRatio = Math.max(0, Math.min(1, ratio));
-          pX = tempPathPointers[i].x + (tempPathPointers[i + 1].x - tempPathPointers[i].x) * clampedRatio;
-          pY = tempPathPointers[i].y + (tempPathPointers[i + 1].y - tempPathPointers[i].y) * clampedRatio;
-          break;
+        if (!isRangeSelecting && (deltaX > moveThreshold || deltaY > moveThreshold)) {
+            // 閾値を超えて動いた場合は範囲選択を開始
+            isRangeSelecting = true;
+            clearTimeout(longPressTimer); // 単体長押し判定をキャンセル
         }
-        accum += lengths[i];
-      }
 
-      const isDuplicate = newPointers.some(np => Math.hypot(np.x - pX, np.y - pY) < 3);
-      if (!isDuplicate) {
-        newPointers.push({ x: pX, y: pY });
-      }
+        if (isRangeSelecting) {
+            updateSelectionBox();
+            renderGrid(); // ③ 範囲選択中のノーツ点滅（.selecting-blink）を更新
+        }
     }
 
-    tempPathPointers = newPointers;
-    showToast(`${totalBeats}拍分のポインタを自動配置しました`);
-    drawPathCanvas();
-  };
+    function handleEnd() {
+        if (!isInteracting) return;
+        clearTimeout(longPressTimer);
 
-  window.savePathModal = function() {
-    if (selectedNotes.length > 0) {
-      window.saveHistory();
-      selectedNotes.forEach(n => n.path = JSON.parse(JSON.stringify(tempPathPointers)));
-      showToast('ノーツ軌道を保存しました');
+        if (isRangeSelecting) {
+            // 範囲選択の確定処理
+            finalizeRangeSelection();
+        } else if (!hasTriggeredLongPress) {
+            // 短いタップ時の処理
+            executeTapAction(startCellX, startCellY);
+        }
+
+        // リセット
+        isInteracting = false;
+        isRangeSelecting = false;
+        selectionBox.style.display = 'none';
+        renderGrid();
     }
-    closePathModal();
-  };
 
-  window.closePathModal = function() { pathModal.style.display = 'none'; };
+    // ① 単体長押しアクション
+    function executeLongPressAction(cx, cy) {
+        if (cx < 0 || cy < 0) return;
+        const key = getKey(cx, cy);
 
-  // --- 回転設定モーダル ---
-  let tempRotDir = 'none';
-  window.openRotateModal = function() {
-    closeContextMenu();
-    const rot = targetNote?.rotation || { dir: 'none', deg: 0 };
-    tempRotDir = rot.dir;
-    document.getElementById('num-rot-deg').value = rot.deg;
-    updateRotDirButtons();
-    document.getElementById('rotate-modal').style.display = 'flex';
-  };
-
-  window.setRotDir = function(dir) {
-    tempRotDir = dir; updateRotDirButtons();
-  };
-
-  function updateRotDirButtons() {
-    document.getElementById('btn-rot-left').style.border = tempRotDir === 'left' ? '2px solid #00ffff' : 'none';
-    document.getElementById('btn-rot-none').style.border = tempRotDir === 'none' ? '2px solid #00ffff' : 'none';
-    document.getElementById('btn-rot-right').style.border = tempRotDir === 'right' ? '2px solid #00ffff' : 'none';
-  }
-
-  window.saveRotateConfig = function() {
-    const deg = parseFloat(document.getElementById('num-rot-deg').value) || 0;
-    window.saveHistory();
-    selectedNotes.forEach(n => n.rotation = { dir: tempRotDir, deg });
-    showToast('回転設定を保存しました');
-    closeRotateModal();
-  };
-
-  window.closeRotateModal = function() { document.getElementById('rotate-modal').style.display = 'none'; };
-
-  // --- 大きさ変化設定 ---
-  window.startScaleConfigMode = function() {
-    const invalid = selectedNotes.some(n => !n.lineId || !n.genTime);
-    if (invalid) {
-      showToast('⚠️判定ラインID紐付けと発生タイミング設定の両方を完了させてください');
-      return;
+        if (currentMode === 'notes') {
+            if (notesData.has(key)) {
+                // 中身のあるグリッドの場合、単体選択を行って即座にノーツ設定メニューを開く
+                selectedNoteKeys.clear();
+                selectedNoteKeys.add(key);
+                openNotesPanel();
+            }
+        } else if (currentMode === 'judge') {
+            if (judgeLinesData.has(key)) {
+                selectedJudgeKeys.clear();
+                selectedJudgeKeys.add(key);
+                openJudgePanel();
+            }
+        }
+        renderGrid();
     }
-    closeContextMenu();
-    document.getElementById('scale-modal').style.display = 'flex';
-  };
 
-  window.saveScalePointerVal = function() {
-    const val = parseFloat(document.getElementById('num-scale-val').value) || 100;
-    window.saveHistory();
-    selectedNotes.forEach(n => {
-      n.scalePointers = [{ pos: 0, val: 100 }, { pos: 1, val }];
+    // タップ時アクション（ノーツの追加・削除）
+    function executeTapAction(cx, cy) {
+        if (cx < 0 || cy < 0) return;
+        const key = getKey(cx, cy);
+
+        if (currentMode === 'notes') {
+            if (notesData.has(key)) {
+                // 既存ノーツの削除
+                notesData.delete(key);
+                selectedNoteKeys.delete(key);
+                closeAllPanels();
+            } else {
+                // ④ 空白グリッドに打込み：打ち込まれたノーツは選択状態にしない
+                notesData.set(key, { id: Date.now(), x: cx, y: cy, trajectory: 'straight', size: 1.0 });
+                selectedNoteKeys.clear(); // 選択状態を解除
+                closeAllPanels();
+            }
+        } else if (currentMode === 'judge') {
+            if (judgeLinesData.has(key)) {
+                judgeLinesData.delete(key);
+                selectedJudgeKeys.delete(key);
+                closeAllPanels();
+            } else {
+                judgeLinesData.set(key, { id: Date.now(), x: cx, y: cy, type: 'normal' });
+                selectedJudgeKeys.clear();
+                closeAllPanels();
+            }
+        }
+        renderGrid();
+    }
+
+    // 範囲選択の描画更新
+    function updateSelectionBox() {
+        const rect = gridContainer.getBoundingClientRect();
+        const left = Math.min(startX, currentX) - rect.left;
+        const top = Math.min(startY, currentY) - rect.top;
+        const width = Math.abs(currentX - startX);
+        const height = Math.abs(currentY - startY);
+
+        selectionBox.style.left = `${left}px`;
+        selectionBox.style.top = `${top}px`;
+        selectionBox.style.width = `${width}px`;
+        selectionBox.style.height = `${height}px`;
+        selectionBox.style.display = 'block';
+    }
+
+    function isCellInSelectionBox(x, y) {
+        const startCoords = getCellCoordsFromPoint(startX, startY);
+        const currentCoords = getCellCoordsFromPoint(currentX, currentY);
+        if (!startCoords || !currentCoords) return false;
+
+        const minX = Math.min(startCoords.x, currentCoords.x);
+        const maxX = Math.max(startCoords.x, currentCoords.x);
+        const minY = Math.min(startCoords.y, currentCoords.y);
+        const maxY = Math.max(startCoords.y, currentCoords.y);
+
+        return x >= minX && x <= maxX && y >= minY && y <= maxY;
+    }
+
+    // 範囲選択確定
+    function finalizeRangeSelection() {
+        const startCoords = getCellCoordsFromPoint(startX, startY);
+        const currentCoords = getCellCoordsFromPoint(currentX, currentY);
+        if (!startCoords || !currentCoords) return;
+
+        const minX = Math.min(startCoords.x, currentCoords.x);
+        const maxX = Math.max(startCoords.x, currentCoords.x);
+        const minY = Math.min(startCoords.y, currentCoords.y);
+        const maxY = Math.max(startCoords.y, currentCoords.y);
+
+        if (currentMode === 'notes') {
+            selectedNoteKeys.clear();
+            for (let y = minY; y <= maxY; y++) {
+                for (let x = minX; x <= maxX; x++) {
+                    const key = getKey(x, y);
+                    if (notesData.has(key)) {
+                        selectedNoteKeys.add(key);
+                    }
+                }
+            }
+            if (selectedNoteKeys.size > 0) {
+                openNotesPanel();
+            } else {
+                closeAllPanels();
+            }
+        } else if (currentMode === 'judge') {
+            selectedJudgeKeys.clear();
+            for (let y = minY; y <= maxY; y++) {
+                for (let x = minX; x <= maxX; x++) {
+                    const key = getKey(x, y);
+                    if (judgeLinesData.has(key)) {
+                        selectedJudgeKeys.add(key);
+                    }
+                }
+            }
+            if (selectedJudgeKeys.size > 0) {
+                openJudgePanel();
+            } else {
+                closeAllPanels();
+            }
+        }
+    }
+
+    // --- パネル制御 ---
+    function openNotesPanel() {
+        closeAllPanels();
+        notesPanel.classList.add('active');
+    }
+
+    function openJudgePanel() {
+        closeAllPanels();
+        judgePanel.classList.add('active');
+    }
+
+    function closeAllPanels() {
+        notesPanel.classList.remove('active');
+        judgePanel.classList.remove('active');
+    }
+
+    // --- イベントリスナーの準備 ---
+    function setupEvents() {
+        // モード切替
+        document.getElementById('btn-mode-notes').addEventListener('click', () => setMode('notes'));
+        document.getElementById('btn-mode-judge').addEventListener('click', () => setMode('judge'));
+        document.getElementById('btn-mode-play').addEventListener('click', () => setMode('play'));
+
+        // タッチ / マウスイベント結合
+        const container = gridContainer;
+
+        container.addEventListener('touchstart', (e) => {
+            const touch = e.touches[0];
+            handleStart(touch.clientX, touch.clientY);
+        }, { passive: true });
+
+        window.addEventListener('touchmove', (e) => {
+            if (!isInteracting) return;
+            const touch = e.touches[0];
+            handleMove(touch.clientX, touch.clientY);
+        }, { passive: true });
+
+        window.addEventListener('touchend', () => handleEnd());
+
+        container.addEventListener('mousedown', (e) => {
+            handleStart(e.clientX, e.clientY);
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            handleMove(e.clientX, e.clientY);
+        });
+
+        window.addEventListener('mouseup', () => handleEnd());
+
+        // パネル内ボタン制御
+        document.getElementById('btn-close-notes-panel').addEventListener('click', () => {
+            closeAllPanels();
+            selectedNoteKeys.clear();
+            renderGrid();
+        });
+
+        document.getElementById('btn-close-judge-panel').addEventListener('click', () => {
+            closeAllPanels();
+            selectedJudgeKeys.clear();
+            renderGrid();
+        });
+
+        document.getElementById('btn-delete-notes').addEventListener('click', () => {
+            selectedNoteKeys.forEach(key => {
+                notesData.delete(key);
+            });
+            selectedNoteKeys.clear();
+            closeAllPanels();
+            renderGrid();
+        });
+    }
+
+    function setMode(mode) {
+        currentMode = mode;
+        document.querySelectorAll('.mode-selector button').forEach(b => b.classList.remove('active'));
+        closeAllPanels();
+        selectedNoteKeys.clear();
+        selectedJudgeKeys.clear();
+
+        const editorView = document.getElementById('editor-view');
+        const ingameView = document.getElementById('ingame-view');
+
+        if (mode === 'notes') {
+            document.getElementById('btn-mode-notes').classList.add('active');
+            statusDisplay.textContent = 'モード: ノーツ設定';
+            editorView.style.display = 'flex';
+            ingameView.style.display = 'none';
+        } else if (mode === 'judge') {
+            document.getElementById('btn-mode-judge').classList.add('active');
+            statusDisplay.textContent = 'モード: 判定ライン設定';
+            editorView.style.display = 'flex';
+            ingameView.style.display = 'none';
+        } else if (mode === 'play') {
+            document.getElementById('btn-mode-play').classList.add('active');
+            statusDisplay.textContent = 'モード: インゲーム再生';
+            editorView.style.display = 'none';
+            ingameView.style.display = 'block';
+        }
+        renderGrid();
+    }
+
+    // 初期化実行
+    window.addEventListener('DOMContentLoaded', () => {
+        initGrid();
+        setupEvents();
+        renderGrid();
     });
-    showToast('大きさ変化を設定しました');
-    closeScaleModal();
-  };
-
-  window.closeScaleModal = function() { document.getElementById('scale-modal').style.display = 'none'; };
-
-  // --- 再生エンジン ---
-  let lastPlayedTime = -1;
-  function updatePlayback() {
-    if (!isPlaying) return;
-    const secondsPerBar = (60 / bpm) * 4;
-    const currentBar = playStartBar + ((audioCtx.currentTime - playStartTime) / secondsPerBar);
-
-    notes.forEach(n => {
-      const noteBarTime = n.bar + n.relativeTime;
-      if (noteBarTime >= lastPlayedTime && noteBarTime < currentBar) playKickSound();
-    });
-
-    lastPlayedTime = currentBar;
-    renderAllLanes(currentBar);
-    animFrameId = requestAnimationFrame(updatePlayback);
-  }
-
-  function startPlay(fromBar) {
-    initAudio(); isPlaying = true; playStartBar = fromBar;
-    playStartTime = audioCtx.currentTime; lastPlayedTime = fromBar;
-    updatePlayback();
-  }
-
-  function stopPlay() {
-    isPlaying = false;
-    if (animFrameId) cancelAnimationFrame(animFrameId);
-    playBtns.forEach(b => { b.classList.remove('playing'); b.innerText = 'ここから\n再生'; });
-    const mainBtn = document.getElementById('btn-play-all');
-    mainBtn.innerText = '最初から再生'; mainBtn.className = 'btn-large btn-primary';
-    renderAllLanes(-1);
-  }
-
-  function togglePlayLane(laneIndex) {
-    if (isPlaying && playingLaneIndex === laneIndex) {
-      stopPlay(); playingLaneIndex = -1; return;
-    }
-    stopPlay(); playingLaneIndex = laneIndex;
-    playBtns[laneIndex].classList.add('playing'); playBtns[laneIndex].innerText = '停止';
-    startPlay(laneIndex * BARS_PER_LANE);
-  }
-
-  window.togglePlayAll = function() {
-    if (isPlaying) stopPlay();
-    else {
-      const mainBtn = document.getElementById('btn-play-all');
-      mainBtn.innerText = '停止'; mainBtn.className = 'btn-large btn-danger';
-      startPlay(0);
-    }
-  };
-
-  initLanes();
-});
 </script>
 </body>
 </html>
