@@ -92,7 +92,7 @@
   #paste-popover, #expire-confirm-popover, #gen-time-popover {
     display: none; position: fixed; z-index: 300; background: #1e1e1e;
     border: 2px solid #007acc; border-radius: 8px; padding: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.7); display: flex; gap: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.7); gap: 8px;
   }
   #paste-popover button, #expire-confirm-popover button, #gen-time-popover button {
     padding: 6px 12px; font-size: 12px; font-weight: bold; border: none; border-radius: 4px; cursor: pointer;
@@ -676,6 +676,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     if (editMode === 'note') {
       const sameGroup = notes.filter(n => n.bar === targetBar && Math.abs(n.relativeTime - snappedTime) < 0.0001 && n.row === targetRow);
+      // グリッドに打ち込まれているノーツを取得（複数ある場合は先頭）
       targetExistingItem = sameGroup[0] || null;
     } else {
       targetExistingItem = lines.find(l => l.bar === targetBar && Math.abs(l.relativeTime - snappedTime) < 0.0001 && l.row === targetRow);
@@ -690,8 +691,10 @@ window.addEventListener('DOMContentLoaded', () => {
       tapTimer = setTimeout(() => {
         isLongTap = true;
         if (editMode === 'note') {
+          // 重複ノーツ含め同タイミング・同レーンの全ノーツを選択対象に更新
+          const sameGroupAll = notes.filter(n => n.bar === targetExistingItem.bar && Math.abs(n.relativeTime - targetExistingItem.relativeTime) < 0.0001 && n.row === targetExistingItem.row);
           targetNote = targetExistingItem;
-          selectedNotes = [targetNote];
+          selectedNotes = sameGroupAll.length > 0 ? sameGroupAll : [targetNote];
           openNoteContextMenu(clientX, clientY);
         } else {
           targetLine = targetExistingItem;
@@ -699,7 +702,7 @@ window.addEventListener('DOMContentLoaded', () => {
           openLineContextMenu(clientX, clientY);
         }
         renderAllLanes();
-      }, 450);
+      }, 500);
     }
   }
 
@@ -773,6 +776,7 @@ window.addEventListener('DOMContentLoaded', () => {
         }
       }
     } else {
+      // スライド範囲選択時の判定処理
       if (editMode === 'note' && selectedNotes.length > 0) {
         targetNote = selectedNotes[0];
         openNoteContextMenu(e.clientX, e.clientY);
@@ -892,14 +896,12 @@ window.addEventListener('DOMContentLoaded', () => {
     const isSingle = selectedNotes.length === 1;
     const shapes = Array.from(new Set(selectedNotes.map(n => n.shape)));
     const isSameShapeMulti = !isSingle && shapes.length === 1;
-    const isDiffShapeMulti = !isSingle && shapes.length > 1;
 
     document.getElementById('note-menu-title').innerText = isSingle ? 'ノーツ設定' : `${selectedNotes.length}個 選択中`;
 
-    // ID紐付けボックス表示コントロール（厳格化）
+    // ID紐付けボックス表示コントロール
     const idWrapper = document.getElementById('id-box-wrapper');
     const txtId = document.getElementById('txt-line-id');
-    const iconStatus = document.getElementById('id-status-icon');
 
     let showIdBox = false;
 
@@ -1253,7 +1255,6 @@ window.addEventListener('DOMContentLoaded', () => {
     } else if (screenDragTarget === 'scale') {
       const origDist = Math.hypot(screenDragStart.x - screenDragStart.pos.x, screenDragStart.y - screenDragStart.pos.y);
       const newDist = Math.hypot(mx - screenDragStart.pos.x, my - screenDragStart.pos.y);
-      // ★修正：5%〜1000%
       tempPos.scale = Math.max(0.05, Math.min(10.0, screenDragStart.pos.scale * (newDist / (origDist || 1))));
     } else if (screenDragTarget === 'rotate') {
       const rad = Math.atan2(my - tempPos.y, mx - tempPos.x);
@@ -1332,7 +1333,6 @@ window.addEventListener('DOMContentLoaded', () => {
     pathCtx.scale(1 / zoom, 1 / zoom);
     pathCtx.translate(-w / 2, -h / 2);
 
-    // ★修正：100%時の白い点線枠
     if (pathZoomLevels[pathZoomIdx] === 100) {
       pathCtx.strokeStyle = '#ffffff';
       pathCtx.lineWidth = 2;
@@ -1408,7 +1408,6 @@ window.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    // ★パス線分へのヒット判定を太くして優先（曲線化）
     let insertIdx = -1;
     let insertPos = null;
     const hitThreshold = 18 * zoom;
@@ -1562,7 +1561,6 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // --- 大きさ変化設定 ---
   window.startScaleConfigMode = function() {
-    // ★修正：複数選択時も全ノーツが条件を満たしているかチェック
     const invalid = selectedNotes.some(n => !n.lineId || !n.genTime);
     if (invalid) {
       showToast('⚠️判定ラインID紐付けと発生タイミング設定の両方を完了させてください');
