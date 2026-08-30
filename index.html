@@ -307,7 +307,7 @@ window.addEventListener('DOMContentLoaded', () => {
   let dragStart = null;
   let dragCurrent = null;
   let activeLaneIndex = -1;
-  let activePointerId = null; // 現在追跡中のタッチポインタID
+  let activePointerId = null; // 現在範囲選択を行っているポインターID
 
   let tapTimer = null;
   let isLongTap = false;
@@ -487,7 +487,7 @@ window.addEventListener('DOMContentLoaded', () => {
       canvas.addEventListener('pointerdown', (e) => onPointerDown(e, l, canvas));
       canvas.addEventListener('pointermove', (e) => onPointerMove(e, l, canvas));
       canvas.addEventListener('pointerup', (e) => onPointerUp(e, l, canvas));
-      canvas.addEventListener('pointercancel', (e) => onPointerCancel(e, l, canvas));
+      canvas.addEventListener('pointercancel', (e) => onPointerUp(e, l, canvas));
 
       rowDiv.appendChild(headerDiv); rowDiv.appendChild(canvas);
       container.appendChild(rowDiv);
@@ -632,7 +632,7 @@ window.addEventListener('DOMContentLoaded', () => {
       ctx.globalAlpha = 1.0;
     }
 
-    // --- ドラッグ選択領域 ---
+    // --- ドラッグ選択領域 (水色の四角枠) ---
     if (activeLaneIndex === laneIndex && dragStart && dragCurrent) {
       const rx = Math.min(dragStart.x, dragCurrent.x); const ry = Math.min(dragStart.y, dragCurrent.y);
       const rw = Math.abs(dragStart.x - dragCurrent.x); const rh = Math.abs(dragStart.y - dragCurrent.y);
@@ -661,50 +661,41 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   function forceCompleteSelection(e) {
+    clearTimeout(tapTimer);
     if (!dragStart) return;
-    
-    // 現在のドラッグ範囲選択を確定
-    if (activeLaneIndex !== -1 && dragStart && dragCurrent) {
-      const canvas = laneCanvases[activeLaneIndex];
-      if (canvas) {
-        const dist = Math.hypot(dragCurrent.x - dragStart.x, dragCurrent.y - dragStart.y);
-        if (dist >= 5) {
-          if (editMode === 'note' && selectedNotes.length > 0) {
-            targetNote = selectedNotes[0];
-            const clientX = e ? e.clientX : window.innerWidth / 2;
-            const clientY = e ? e.clientY : window.innerHeight / 2;
-            openNoteContextMenu(clientX, clientY);
-          } else if (editMode === 'line' && selectedLines.length > 0) {
-            targetLine = selectedLines[0];
-            const clientX = e ? e.clientX : window.innerWidth / 2;
-            const clientY = e ? e.clientY : window.innerHeight / 2;
-            openLineContextMenu(clientX, clientY);
-          }
-        }
-      }
+
+    // 水色の四角枠を即座に削除
+    dragStart = null; 
+    dragCurrent = null; 
+    activePointerId = null;
+
+    if (editMode === 'note' && selectedNotes.length > 0) {
+      targetNote = selectedNotes[0];
+      openNoteContextMenu(e.clientX, e.clientY);
+    } else if (editMode === 'line' && selectedLines.length > 0) {
+      targetLine = selectedLines[0];
+      openLineContextMenu(e.clientX, e.clientY);
     }
 
-    clearTimeout(tapTimer);
-    dragStart = null;
-    dragCurrent = null;
     activeLaneIndex = -1;
-    activePointerId = null;
     renderAllLanes();
   }
 
   function onPointerDown(e, laneIndex, canvas) {
-    initAudio(); closeContextMenu();
+    initAudio();
 
-    // 既に他の指で操作中の場合は、前回の範囲選択を強制完了させて新しい操作を開始
-    if (activePointerId !== null && activePointerId !== e.pointerId) {
+    // 既に範囲選択中で、別指でのタッチが発生した場合は強制完了
+    if (dragStart && activePointerId !== null && e.pointerId !== activePointerId) {
       forceCompleteSelection(e);
+      return;
     }
 
+    closeContextMenu();
     const { x, y } = getCanvasCoords(e, canvas);
     if (y < ROW_HEIGHT) return;
 
-    activePointerId = e.pointerId;
     activeLaneIndex = laneIndex;
+    activePointerId = e.pointerId;
     dragStart = { x, y }; dragCurrent = { x, y };
 
     const barWidth = canvas.width / BARS_PER_LANE;
@@ -745,7 +736,7 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   function onPointerMove(e, laneIndex, canvas) {
-    if (!dragStart || activeLaneIndex !== laneIndex || activePointerId !== e.pointerId) return;
+    if (!dragStart || activeLaneIndex !== laneIndex || e.pointerId !== activePointerId) return;
     const { x, y } = getCanvasCoords(e, canvas);
     dragCurrent = { x, y };
 
@@ -777,9 +768,13 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   function onPointerUp(e, laneIndex, canvas) {
-    if (activePointerId !== e.pointerId) return;
     clearTimeout(tapTimer);
     if (!dragStart) return;
+
+    // ドラッグ中に別のポインターが動作した場合は無視
+    if (activePointerId !== null && e.pointerId !== activePointerId) {
+      return;
+    }
 
     const { x, y } = getCanvasCoords(e, canvas);
     const dist = Math.hypot(x - dragStart.x, y - dragStart.y);
@@ -815,23 +810,13 @@ window.addEventListener('DOMContentLoaded', () => {
         }
       }
     } else {
-      if (editMode === 'note' && selectedNotes.length > 0) {
-        targetNote = selectedNotes[0];
-        openNoteContextMenu(e.clientX, e.clientY);
-      } else if (editMode === 'line' && selectedLines.length > 0) {
-        targetLine = selectedLines[0];
-        openLineContextMenu(e.clientX, e.clientY);
-      }
+      // 範囲選択完了時の動作（指が画面から離れた場合）
+      forceCompleteSelection(e);
+      return;
     }
 
     dragStart = null; dragCurrent = null; activeLaneIndex = -1; activePointerId = null;
     renderAllLanes();
-  }
-
-  function onPointerCancel(e, laneIndex, canvas) {
-    if (activePointerId === e.pointerId) {
-      forceCompleteSelection(e);
-    }
   }
 
   function handleSingleTap(laneIndex, x, y) {
@@ -940,12 +925,14 @@ window.addEventListener('DOMContentLoaded', () => {
     const isSingle = selectedNotes.length === 1;
     const shapes = Array.from(new Set(selectedNotes.map(n => n.shape)));
     const isSameShapeMulti = !isSingle && shapes.length === 1;
+    const isDiffShapeMulti = !isSingle && shapes.length > 1;
 
     document.getElementById('note-menu-title').innerText = isSingle ? 'ノーツ設定' : `${selectedNotes.length}個 選択中`;
 
     // ID紐付けボックス表示コントロール
     const idWrapper = document.getElementById('id-box-wrapper');
     const txtId = document.getElementById('txt-line-id');
+    const iconStatus = document.getElementById('id-status-icon');
 
     let showIdBox = false;
 
