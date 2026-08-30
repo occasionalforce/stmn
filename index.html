@@ -92,7 +92,7 @@
   #paste-popover, #expire-confirm-popover, #gen-time-popover {
     display: none; position: fixed; z-index: 300; background: #1e1e1e;
     border: 2px solid #007acc; border-radius: 8px; padding: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.7); display: flex; gap: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.7); gap: 8px;
   }
   #paste-popover button, #expire-confirm-popover button, #gen-time-popover button {
     padding: 6px 12px; font-size: 12px; font-weight: bold; border: none; border-radius: 4px; cursor: pointer;
@@ -307,7 +307,6 @@ window.addEventListener('DOMContentLoaded', () => {
   let dragStart = null;
   let dragCurrent = null;
   let activeLaneIndex = -1;
-  let activePointerId = null; // 現在範囲選択を行っているポインターID
 
   let tapTimer = null;
   let isLongTap = false;
@@ -487,7 +486,6 @@ window.addEventListener('DOMContentLoaded', () => {
       canvas.addEventListener('pointerdown', (e) => onPointerDown(e, l, canvas));
       canvas.addEventListener('pointermove', (e) => onPointerMove(e, l, canvas));
       canvas.addEventListener('pointerup', (e) => onPointerUp(e, l, canvas));
-      canvas.addEventListener('pointercancel', (e) => onPointerUp(e, l, canvas));
 
       rowDiv.appendChild(headerDiv); rowDiv.appendChild(canvas);
       container.appendChild(rowDiv);
@@ -632,7 +630,7 @@ window.addEventListener('DOMContentLoaded', () => {
       ctx.globalAlpha = 1.0;
     }
 
-    // --- ドラッグ選択領域 (水色の四角枠) ---
+    // --- ドラッグ選択領域 ---
     if (activeLaneIndex === laneIndex && dragStart && dragCurrent) {
       const rx = Math.min(dragStart.x, dragCurrent.x); const ry = Math.min(dragStart.y, dragCurrent.y);
       const rw = Math.abs(dragStart.x - dragCurrent.x); const rh = Math.abs(dragStart.y - dragCurrent.y);
@@ -660,42 +658,12 @@ window.addEventListener('DOMContentLoaded', () => {
     };
   }
 
-  function forceCompleteSelection(e) {
-    clearTimeout(tapTimer);
-    if (!dragStart) return;
-
-    // 水色の四角枠を即座に削除
-    dragStart = null; 
-    dragCurrent = null; 
-    activePointerId = null;
-
-    if (editMode === 'note' && selectedNotes.length > 0) {
-      targetNote = selectedNotes[0];
-      openNoteContextMenu(e.clientX, e.clientY);
-    } else if (editMode === 'line' && selectedLines.length > 0) {
-      targetLine = selectedLines[0];
-      openLineContextMenu(e.clientX, e.clientY);
-    }
-
-    activeLaneIndex = -1;
-    renderAllLanes();
-  }
-
   function onPointerDown(e, laneIndex, canvas) {
-    initAudio();
-
-    // 既に範囲選択中で、別指でのタッチが発生した場合は強制完了
-    if (dragStart && activePointerId !== null && e.pointerId !== activePointerId) {
-      forceCompleteSelection(e);
-      return;
-    }
-
-    closeContextMenu();
+    initAudio(); closeContextMenu();
     const { x, y } = getCanvasCoords(e, canvas);
     if (y < ROW_HEIGHT) return;
 
     activeLaneIndex = laneIndex;
-    activePointerId = e.pointerId;
     dragStart = { x, y }; dragCurrent = { x, y };
 
     const barWidth = canvas.width / BARS_PER_LANE;
@@ -736,7 +704,7 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   function onPointerMove(e, laneIndex, canvas) {
-    if (!dragStart || activeLaneIndex !== laneIndex || e.pointerId !== activePointerId) return;
+    if (!dragStart || activeLaneIndex !== laneIndex) return;
     const { x, y } = getCanvasCoords(e, canvas);
     dragCurrent = { x, y };
 
@@ -770,11 +738,6 @@ window.addEventListener('DOMContentLoaded', () => {
   function onPointerUp(e, laneIndex, canvas) {
     clearTimeout(tapTimer);
     if (!dragStart) return;
-
-    // ドラッグ中に別のポインターが動作した場合は無視
-    if (activePointerId !== null && e.pointerId !== activePointerId) {
-      return;
-    }
 
     const { x, y } = getCanvasCoords(e, canvas);
     const dist = Math.hypot(x - dragStart.x, y - dragStart.y);
@@ -810,12 +773,16 @@ window.addEventListener('DOMContentLoaded', () => {
         }
       }
     } else {
-      // 範囲選択完了時の動作（指が画面から離れた場合）
-      forceCompleteSelection(e);
-      return;
+      if (editMode === 'note' && selectedNotes.length > 0) {
+        targetNote = selectedNotes[0];
+        openNoteContextMenu(e.clientX, e.clientY);
+      } else if (editMode === 'line' && selectedLines.length > 0) {
+        targetLine = selectedLines[0];
+        openLineContextMenu(e.clientX, e.clientY);
+      }
     }
 
-    dragStart = null; dragCurrent = null; activeLaneIndex = -1; activePointerId = null;
+    dragStart = null; dragCurrent = null; activeLaneIndex = -1;
     renderAllLanes();
   }
 
@@ -929,7 +896,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('note-menu-title').innerText = isSingle ? 'ノーツ設定' : `${selectedNotes.length}個 選択中`;
 
-    // ID紐付けボックス表示コントロール
+    // ID紐付けボックス表示コントロール（厳格化）
     const idWrapper = document.getElementById('id-box-wrapper');
     const txtId = document.getElementById('txt-line-id');
     const iconStatus = document.getElementById('id-status-icon');
@@ -1662,6 +1629,17 @@ window.addEventListener('DOMContentLoaded', () => {
   };
 
   initLanes();
+
+  // --- 画面初期化時に強制的にノーツ設定メニューを開く処理 ---
+  const defaultNote = {
+    bar: 0, relativeTime: 0, row: 0, shape: SHAPES[0],
+    lineId: null, genTime: null, path: null, scalePointers: null, rotation: null
+  };
+  notes.push(defaultNote);
+  targetNote = defaultNote;
+  selectedNotes = [defaultNote];
+  renderAllLanes();
+  openNoteContextMenu(window.innerWidth / 2 - 80, 150);
 });
 </script>
 </body>
