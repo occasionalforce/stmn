@@ -302,6 +302,8 @@ window.addEventListener('DOMContentLoaded', () => {
   let isGenTimeSelectMode = false;
   let pendingGenTiming = null;
 
+  let isScaleConfigMode = false;
+
   let dragStart = null;
   let dragCurrent = null;
   let activeLaneIndex = -1;
@@ -320,7 +322,7 @@ window.addEventListener('DOMContentLoaded', () => {
   let flashState = false;
   setInterval(() => {
     flashState = !flashState;
-    if (isExpireSelectMode || isGenTimeSelectMode) renderAllLanes();
+    if (isExpireSelectMode || isGenTimeSelectMode || selectedNotes.length > 0) renderAllLanes();
   }, 300);
 
   function showToast(msg) {
@@ -554,8 +556,24 @@ window.addEventListener('DOMContentLoaded', () => {
       else if (n.shape === 'star') icon = '⭐︎';
       if (icon) ctx.fillText(icon, x + cellWidth / 2, y + ROW_HEIGHT / 2);
 
-      if (editMode === 'note' && (selectedNotes.includes(n) || targetNote === n)) {
-        ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 2; ctx.strokeRect(x, y, cellWidth, ROW_HEIGHT);
+      if (editMode === 'note') {
+        const isSelected = selectedNotes.includes(n);
+        const isTarget = targetNote === n;
+        
+        if (isSelected || isTarget) {
+          // 範囲選択中で点滅 (要件②)
+          if (isSelected && flashState) {
+            ctx.fillStyle = 'rgba(156, 39, 176, 0.6)';
+            ctx.fillRect(x, y, cellWidth, ROW_HEIGHT);
+            ctx.strokeStyle = '#e1bee7';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, cellWidth, ROW_HEIGHT);
+          } else {
+            ctx.strokeStyle = '#00ffff';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, cellWidth, ROW_HEIGHT);
+          }
+        }
       }
     }
     ctx.globalAlpha = 1.0;
@@ -706,10 +724,17 @@ window.addEventListener('DOMContentLoaded', () => {
     const { x, y } = getCanvasCoords(e, canvas);
     dragCurrent = { x, y };
 
-    if (Math.hypot(x - dragStart.x, y - dragStart.y) > 5) clearTimeout(tapTimer);
+    const barWidth = canvas.width / BARS_PER_LANE;
+    const cellWidth = barWidth / gridMode;
+    const dist = Math.hypot(x - dragStart.x, y - dragStart.y);
 
-    if (!isPasteMode && !isExpireSelectMode && !isGenTimeSelectMode && Math.hypot(x - dragStart.x, y - dragStart.y) >= 5) {
-      const barWidth = canvas.width / BARS_PER_LANE;
+    // グリッド辺の2/3以上の距離を移動した場合のみ、長押しタイマーをキャンセルして範囲選択へ移行 (要件①)
+    const threshold = cellWidth * (2 / 3);
+    if (dist >= threshold) {
+      clearTimeout(tapTimer);
+    }
+
+    if (!isPasteMode && !isExpireSelectMode && !isGenTimeSelectMode && dist >= threshold) {
       const startBar = laneIndex * BARS_PER_LANE;
       const rx = Math.min(dragStart.x, dragCurrent.x); const ry = Math.min(dragStart.y, dragCurrent.y);
       const rw = Math.abs(dragStart.x - dragCurrent.x); const rh = Math.abs(dragStart.y - dragCurrent.y);
@@ -738,7 +763,10 @@ window.addEventListener('DOMContentLoaded', () => {
     if (!dragStart) return;
 
     const { x, y } = getCanvasCoords(e, canvas);
+    const barWidth = canvas.width / BARS_PER_LANE;
+    const cellWidth = barWidth / gridMode;
     const dist = Math.hypot(x - dragStart.x, y - dragStart.y);
+    const threshold = cellWidth * (2 / 3);
 
     if (isExpireSelectMode) {
       handleExpireSelectTap(laneIndex, x, e.clientX, e.clientY);
@@ -746,18 +774,25 @@ window.addEventListener('DOMContentLoaded', () => {
       handleGenTimeSelectTap(laneIndex, x, e.clientX, e.clientY);
     } else if (isPasteMode) {
       updatePastePreview(laneIndex, x, y, e.clientX, e.clientY);
-    } else if (dist < 8) {
+    } else if (dist < threshold) {
       if (!isLongTap) {
         if (targetExistingItem) {
-          // ★修正：タップしたノーツを選択してノーツ設定メニューを展開する
           if (editMode === 'note') {
-            targetNote = targetExistingItem;
-            selectedNotes = [targetNote];
-            openNoteContextMenu(e.clientX, e.clientY);
+            window.saveHistory();
+            notes = notes.filter(n => n !== targetExistingItem);
+            selectedNotes = []; targetNote = null;
           } else {
-            targetLine = targetExistingItem;
-            selectedLines = [targetLine];
-            openLineContextMenu(e.clientX, e.clientY);
+            if (targetExistingItem.position) {
+              if (confirm('配置設定済の判定ラインを削除してもよろしいですか？')) {
+                window.saveHistory();
+                lines = lines.filter(l => l !== targetExistingItem);
+                selectedLines = []; targetLine = null;
+              }
+            } else {
+              window.saveHistory();
+              lines = lines.filter(l => l !== targetExistingItem);
+              selectedLines = []; targetLine = null;
+            }
           }
         } else {
           handleSingleTap(laneIndex, x, y);
@@ -879,10 +914,8 @@ window.addEventListener('DOMContentLoaded', () => {
   // --- ノーツ設定メニュー ---
   function openNoteContextMenu(x, y) {
     if (!targetNote && selectedNotes.length === 0) return;
-    if (!targetNote && selectedNotes.length > 0) targetNote = selectedNotes[0];
-
     const menu = document.getElementById('note-context-menu');
-    const isSingle = selectedNotes.length <= 1;
+    const isSingle = selectedNotes.length === 1;
     const shapes = Array.from(new Set(selectedNotes.map(n => n.shape)));
     const isSameShapeMulti = !isSingle && shapes.length === 1;
 
@@ -899,13 +932,15 @@ window.addEventListener('DOMContentLoaded', () => {
       const commonId = ids[0];
 
       if (allSame) {
-        showIdBox = true;
-        txtId.value = commonId || '';
-        updateIdStatusIcon();
+        if (!commonId || lines.some(l => l.id === commonId)) {
+          showIdBox = true;
+          txtId.value = commonId || '';
+          updateIdStatusIcon();
+        }
       }
     }
 
-    if (idWrapper) idWrapper.style.display = showIdBox ? 'flex' : 'none';
+    idWrapper.style.display = showIdBox ? 'flex' : 'none';
 
     document.getElementById('btn-note-gen').innerText = isSingle ? '発生タイミング設定' : '発生タイミング一括設定';
     document.getElementById('btn-note-path').innerText = isSingle ? '軌道設定' : 'ノーツ軌道一括設定';
@@ -913,7 +948,7 @@ window.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-note-rotate').innerText = isSingle ? '回転設定' : '回転一括設定';
     document.getElementById('btn-note-add').style.display = isSingle ? 'block' : 'none';
 
-    if (isSingle && targetNote) {
+    if (isSingle) {
       const sameGroup = notes.filter(n => n.bar === targetNote.bar && Math.abs(n.relativeTime - targetNote.relativeTime) < 0.0001 && n.shape === targetNote.shape);
       document.getElementById('btn-note-add').innerText = sameGroup.length > 1 ? 'ノーツ切り替え' : 'ノーツ追加';
     }
